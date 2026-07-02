@@ -1,0 +1,171 @@
+// Prisma schema for the Classroom app.
+//
+// Target now: SQLite (zero-setup, runs locally on the school PC).
+// Swappable later: change `datasource.provider` to "postgresql" / "mysql" and
+// the DATABASE_URL to the school server's connection string, then re-run
+// `prisma migrate`. Models are kept portable — note SQLite has no native enums,
+// so `role` / `themeStyle` are strings validated in app code (see src/lib/roles).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         String   @default("STUDENT") // ADMIN | TEACHER | STUDENT
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions     Session[]
+  enrollments  Enrollment[]
+  groupMembers GroupMember[]
+  submissions  Submission[]
+}
+
+// DB-backed sessions: the cookie holds an opaque token that maps to a row here.
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Class {
+  id         String    @id @default(uuid())
+  name       String // e.g. "4.A"
+  schoolYear String // e.g. "2026/2027"
+  isArchived Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  subjects   Subject[]
+}
+
+model Subject {
+  id          String  @id @default(uuid())
+  name        String // e.g. "Loxone Automation"
+  slug        String  @unique // URL: /subjects/loxone
+  description String  @default("")
+  themeStyle  String  @default("default") // loxone | cad3d | default
+  classId     String
+  class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+
+  assignments Assignment[]
+  enrollments Enrollment[]
+  pages       SubjectPage[]
+
+  @@index([classId])
+}
+
+// A page inside a subject, switched via the left panel. Pages are plain
+// content by default; `template` selects a page template instead ("assignments"
+// renders the live assignment list). More templates can be added later.
+model SubjectPage {
+  id        String   @id @default(uuid())
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title     String
+  slug      String // URL: /subjects/<subject>/p/<slug>
+  template  String   @default("content") // content | assignments
+  content   String   @default("") // simple markdown-like text for content pages
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  files SubjectFile[]
+
+  @@unique([subjectId, slug])
+  @@index([subjectId])
+}
+
+// A downloadable file attached to a subject page (presentations, manuals, schemas…).
+model SubjectFile {
+  id          String      @id @default(uuid())
+  pageId      String
+  page        SubjectPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  label       String // human-readable: "Prezentace – Miniserver"
+  fileName    String // original file name on disk
+  fileKey     String // stored path: course_files/...
+  fileSize    Int // bytes
+  mimeType    String      @default("application/octet-stream")
+  category    String      @default("material") // material | manual | schema | template | presentation
+  description String      @default("")
+  order       Int         @default(0)
+
+  @@index([pageId])
+}
+
+model Enrollment {
+  id        String  @id @default(uuid())
+  userId    String
+  subjectId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subjectId]) // a student can't be enrolled twice
+  @@index([subjectId])
+}
+
+model Assignment {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  dueDate     DateTime
+  subjectId   String
+  subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  groups      Group[]
+
+  @@index([subjectId])
+}
+
+model Group {
+  id           String        @id @default(uuid())
+  name         String // e.g. "Pair 1" / "Group A"
+  assignmentId String
+  assignment   Assignment    @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  members      GroupMember[]
+  submissions  Submission[]
+
+  @@index([assignmentId])
+}
+
+model GroupMember {
+  id      String @id @default(uuid())
+  groupId String
+  userId  String
+  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@index([userId])
+}
+
+model Submission {
+  id           String   @id @default(uuid())
+  version      Int // incremented per group, see app logic
+  fileName     String // original file name
+  fileKey      String // stored file path/key on disk (uploads/...)
+  fileSize     Int // bytes
+  mimeType     String   @default("application/octet-stream")
+  note         String?
+  uploadedById String
+  groupId      String
+  createdAt    DateTime @default(now())
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+  group        Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, version]) // no two "v2" in the same group
+  @@index([groupId])
+}
