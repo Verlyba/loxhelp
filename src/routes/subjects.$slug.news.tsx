@@ -1,10 +1,10 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Megaphone, Plus, Trash2 } from "lucide-react";
+import { Megaphone, Plus, Trash2, Pencil, X, Check } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getAnnouncements } from "@/lib/data";
-import { createAnnouncement, deleteAnnouncement } from "@/lib/actions";
+import { createAnnouncement, updateAnnouncement, deleteAnnouncement } from "@/lib/actions";
 import { getRouteApi } from "@tanstack/react-router";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -62,7 +62,11 @@ function NewsPage() {
 function AnnouncementCard({ item, staff }: { item: AnnouncementItem; staff: boolean }) {
   const router = useRouter();
   const del = useServerFn(deleteAnnouncement);
+  const update = useServerFn(updateAnnouncement);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(item.title);
+  const [body, setBody] = useState(item.body);
   const { confirm } = useDialog();
 
   const handleDelete = async () => {
@@ -84,6 +88,67 @@ function AnnouncementCard({ item, staff }: { item: AnnouncementItem; staff: bool
     }
   };
 
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setBusy(true);
+    try {
+      await update({ data: { id: item.id, title, body } });
+      setEditing(false);
+      await router.invalidate();
+      toast.success("Oznámení upraveno.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Chyba při ukládání.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditing(false);
+    setTitle(item.title);
+    setBody(item.body);
+  };
+
+  if (editing) {
+    return (
+      <li className="surface-card p-5">
+        <form onSubmit={handleSave} className="space-y-3">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 font-semibold"
+            placeholder="Titulek..."
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={4}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            placeholder="Text oznámení..."
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            >
+              <Check className="h-3.5 w-3.5" /> Uložit
+            </button>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent bg-surface"
+            >
+              <X className="h-3.5 w-3.5" /> Storno
+            </button>
+          </div>
+        </form>
+      </li>
+    );
+  }
+
   return (
     <li className="surface-card p-5">
       <div className="flex items-start justify-between gap-3">
@@ -94,15 +159,25 @@ function AnnouncementCard({ item, staff }: { item: AnnouncementItem; staff: bool
           </p>
         </div>
         {staff && (
-          <button
-            onClick={handleDelete}
-            disabled={busy}
-            title="Smazat oznámení"
-            aria-label="Smazat oznámení"
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          <div className="flex gap-0.5 shrink-0">
+            <button
+              onClick={() => setEditing(true)}
+              title="Upravit oznámení"
+              aria-label="Upravit oznámení"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={busy}
+              title="Smazat oznámení"
+              aria-label="Smazat oznámení"
+              className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         )}
       </div>
       {item.body.trim() && (

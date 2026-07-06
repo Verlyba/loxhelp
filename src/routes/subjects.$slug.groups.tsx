@@ -1,11 +1,12 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Plus, Search, Shuffle, Trash2, UserPlus, Users2, X } from "lucide-react";
+import { Plus, Search, Shuffle, Trash2, UserPlus, Users2, X, Pencil, Check } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getSubjectGroups } from "@/lib/data";
 import {
   createStudyGroup,
+  updateStudyGroup,
   deleteStudyGroup,
   setStudentStudyGroup,
   addStudentToStudyGroup,
@@ -184,8 +185,11 @@ function StudyGroupCard({ group, data }: { group: StudyGroupView; data: SubjectG
   const mkPair = useServerFn(createPair);
   const shuffle = useServerFn(generatePairsInGroup);
   const enroll = useServerFn(enrollStudents);
+  const updateGroup = useServerFn(updateStudyGroup);
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(group.name);
   const [searchQuery, setSearchQuery] = useState("");
   const { confirm } = useDialog();
 
@@ -260,12 +264,62 @@ function StudyGroupCard({ group, data }: { group: StudyGroupView; data: SubjectG
   return (
     <div className="surface-card p-5">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-foreground">
-          <Users2 className="h-4.5 w-4.5 text-subject" /> {group.name}
-          <span className="text-xs font-normal text-muted-foreground">
-            {group.members.length} studentů
-          </span>
-        </h3>
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="rounded-md border border-input bg-background px-2.5 py-1 text-sm outline-none focus:ring-2 focus:ring-ring/40 text-foreground w-40 font-semibold"
+            />
+            <button
+              onClick={async () => {
+                if (!name.trim()) return;
+                setBusy(true);
+                try {
+                  await updateGroup({ data: { id: group.id, name } });
+                  setEditing(false);
+                  await router.invalidate();
+                  toast.success("Skupina byla přejmenována.");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Chyba při přejmenování.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              disabled={busy}
+              aria-label="Uložit"
+              className="rounded bg-primary p-1 text-primary-foreground disabled:opacity-60"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setName(group.name);
+              }}
+              aria-label="Zrušit"
+              className="rounded border border-border p-1 text-muted-foreground hover:bg-accent"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <h3 className="flex items-center gap-2 font-display text-lg font-semibold text-foreground">
+            <Users2 className="h-4.5 w-4.5 text-subject" />
+            <span>{group.name}</span>
+            <button
+              onClick={() => setEditing(true)}
+              title="Upravit název"
+              aria-label="Přejmenovat skupinu"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <span className="text-xs font-normal text-muted-foreground">
+              {group.members.length} studentů
+            </span>
+          </h3>
+        )}
         <button
           onClick={async () => {
             const ok = await confirm({

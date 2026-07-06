@@ -1198,7 +1198,7 @@ export const getStudentCard = createServerFn({ method: "GET" })
     if (pm) unitKeys.push(`p:${pm.id}`);
     if (sg) unitKeys.push(`g:${sg.id}`);
 
-    const [subs, grades] = await Promise.all([
+    const [subs, grades, classes] = await Promise.all([
       db.submission.findMany({
         where: {
           assignment: { subjectId: subject.id },
@@ -1216,6 +1216,10 @@ export const getStudentCard = createServerFn({ method: "GET" })
       }),
       db.grade.findMany({
         where: { userId: student.id, assignment: { subjectId: subject.id } },
+      }),
+      db.class.findMany({
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
       }),
     ]);
 
@@ -1270,6 +1274,10 @@ export const getStudentCard = createServerFn({ method: "GET" })
         name: fullName(student),
         email: student.email,
         className: student.class?.name ?? null,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        role: student.role,
+        classId: student.classId,
       },
       subjectName: subject.name,
       subjectSlug: subject.slug,
@@ -1307,6 +1315,7 @@ export const getStudentCard = createServerFn({ method: "GET" })
           assignmentTitle: s.assignment.title,
           uploadedAt: s.createdAt.toISOString(),
         })),
+      classes: classes.map((c) => ({ id: c.id, name: c.name })),
     };
   });
 

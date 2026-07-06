@@ -507,6 +507,25 @@ export const createAnnouncement = createServerFn({ method: "POST" })
     return { id: created.id };
   });
 
+export const updateAnnouncement = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().min(1),
+        title: z.string().min(1),
+        body: z.string().default(""),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    await db.announcement.update({
+      where: { id: data.id },
+      data: { title: data.title, body: data.body },
+    });
+    return { ok: true };
+  });
+
 export const deleteAnnouncement = createServerFn({ method: "POST" })
   .inputValidator((id: string) => z.string().parse(id))
   .handler(async ({ data: id }) => {
@@ -617,6 +636,19 @@ export const createStudyGroup = createServerFn({ method: "POST" })
     await requireStaff();
     const created = await db.studyGroup.create({ data });
     return { id: created.id };
+  });
+
+export const updateStudyGroup = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().min(1), name: z.string().min(1) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    await db.studyGroup.update({
+      where: { id: data.id },
+      data: { name: data.name },
+    });
+    return { ok: true };
   });
 
 export const deleteStudyGroup = createServerFn({ method: "POST" })

@@ -189,7 +189,16 @@ export interface StudentCardRow {
 }
 
 export interface StudentCardData {
-  student: { id: string; name: string; email: string; className: string | null };
+  student: {
+    id: string;
+    name: string;
+    email: string;
+    className: string | null;
+    firstName: string;
+    lastName: string;
+    role: string;
+    classId: string | null;
+  };
   subjectName: string;
   subjectSlug: string;
   studyGroup: string | null;
@@ -203,6 +212,7 @@ export interface StudentCardData {
   };
   rows: StudentCardRow[];
   recentUploads: { fileName: string; assignmentTitle: string; uploadedAt: string }[];
+  classes: { id: string; name: string }[];
 }
 
 export interface VersionItem {

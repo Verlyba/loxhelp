@@ -18,7 +18,13 @@ import {
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubject } from "@/lib/data";
-import { createSubjectPage, deleteSubjectPage, updateSubject, movePage } from "@/lib/actions";
+import {
+  createSubjectPage,
+  deleteSubjectPage,
+  updateSubject,
+  deleteSubject,
+  movePage,
+} from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
 import { StudentTopPanels, StaffTopPanels } from "@/components/subject-top-panels";
@@ -138,6 +144,8 @@ function EditSubjectModal({
 }) {
   const router = useRouter();
   const update = useServerFn(updateSubject);
+  const del = useServerFn(deleteSubject);
+  const { confirm } = useDialog();
 
   const [name, setName] = useState(subject.name);
   const [description, setDescription] = useState(subject.description || "");
@@ -165,6 +173,25 @@ function EditSubjectModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Uložení selhalo.");
     } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: `Smazat předmět ${subject.name}?`,
+      message:
+        "Smažou se všechny úkoly, odevzdání, materiály, diskusní fóra, testy a pokusy studentů. Akce je nevratná!",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await del({ data: subject.id });
+      toast.success(`Předmět ${subject.name} byl smazán.`);
+      router.navigate({ to: "/subjects" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chyba při mazání.");
       setBusy(false);
     }
   };
@@ -222,21 +249,31 @@ function EditSubjectModal({
 
           {error && <p className="text-xs text-red-600">{error}</p>}
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-border mt-6">
+          <div className="flex justify-between items-center pt-4 border-t border-border mt-6">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted text-muted-foreground hover:text-foreground bg-surface"
-            >
-              Storno
-            </button>
-            <button
-              type="submit"
+              onClick={handleDelete}
               disabled={busy}
-              className="subject-button px-4 py-2 rounded-lg text-sm font-semibold shadow"
+              className="px-4 py-2 rounded-lg border border-red-200 text-sm font-medium hover:bg-red-100 text-red-700 bg-red-50 disabled:opacity-60"
             >
-              {busy ? "Ukládám..." : "Uložit změny"}
+              {busy ? "Mažu..." : "Smazat předmět"}
             </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted text-muted-foreground hover:text-foreground bg-surface"
+              >
+                Storno
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="subject-button px-4 py-2 rounded-lg text-sm font-semibold shadow"
+              >
+                {busy ? "Ukládám..." : "Uložit změny"}
+              </button>
+            </div>
           </div>
         </form>
       </div>
