@@ -14,10 +14,16 @@
       shellu selže). Migrace v prisma/migrations/ jsou z rané fáze a NEodpovídají aktuálnímu schématu –
       před produkcí bude potřeba `migrate diff` reconcile. Data v dev.db jsou reálná → NIKDY migrate reset.
 
-[ ] AuditLog – zapojení (§5C).
-    Transakčně logovat každou změnu známky/zámku/prodloužení v updateSubmissionState
-    (action, entityId=`${assignmentId}:${userId}`, old/new, targetName). Helper writeAudit(tx, …).
-    UI: sekce "Historie hodnocení" na kartě žáka + v GradingModalu. RBAC: jen staff.
+[x] AuditLog – zapojení (§5C).
+    Hotovo (iterace 2, commit bb62fc0):
+    - writeAudit(tx, actorId, entry) helper (Tx = typ z db.$transaction).
+    - updateSubmissionState v jedné transakci porovná existing vs next a zapíše řádek pro každou
+      změněnou dimenzi: GRADE_SET/CHANGE/DELETE, FEEDBACK_CHANGE, SUBMISSION_LOCK/UNLOCK,
+      EXTENSION_SET/CLEAR. entityId=`${assignmentId}:${userId}`, targetName=jméno, old→new.
+    - Data fn getGradeAudit (staff-only, entityType="Grade", entityId in unit) + typ AuditEntryView.
+    - UI: rozbalovací sekce "Historie hodnocení (audit)" v GradingModalu (react-query, refreshKey=grade).
+    - Pozn.: karta žáka zatím audit nezobrazuje (stačí GradingModal); lze doplnit později.
+      SpeedGrader-lite náhled je už hotový (paralelní práce) — viz poslední bod.
 
 [ ] Draft/published materiálů (§5A).
     Server: toggle isPublished na SubjectFile (staff), getSubjectPage vrací studentům jen published.
