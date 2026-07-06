@@ -37,6 +37,7 @@ model User {
   announcements     Announcement[]
   auditLogs         AuditLog[]         @relation("AuditActor")
   consents          AssignmentConsent[]
+  testAttempts      TestAttempt[]
 }
 
 // Audit trail for classification/submission-state changes (PRD §5C). Every
@@ -126,6 +127,7 @@ model Subject {
   pages         SubjectPage[]
   studyGroups   StudyGroup[]
   announcements Announcement[]
+  tests         Test[]
 
   @@index([classId])
 }
@@ -300,4 +302,78 @@ model Grade {
 
   @@unique([assignmentId, userId])
   @@index([userId])
+}
+
+model Test {
+  id          String        @id @default(uuid())
+  subjectId   String
+  subject     Subject       @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title       String
+  description String        @default("")
+  isPublished Boolean       @default(false)
+  timeLimit   Int?          // Limit v minutách, null = bez limitu
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  questions   Question[]
+  attempts    TestAttempt[]
+
+  @@index([subjectId])
+}
+
+model Question {
+  id      String           @id @default(uuid())
+  testId  String
+  test    Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
+  text    String
+  type    String           // "SINGLE" | "MULTIPLE" | "TEXT"
+  points  Int              @default(1)
+  order   Int              @default(0)
+  options QuestionOption[]
+  answers Answer[]
+
+  @@index([testId])
+}
+
+model QuestionOption {
+  id         String   @id @default(uuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  order      Int      @default(0)
+  answers    Answer[]
+
+  @@index([questionId])
+}
+
+model TestAttempt {
+  id          String    @id @default(uuid())
+  testId      String
+  test        Test      @relation(fields: [testId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt   DateTime  @default(now())
+  submittedAt DateTime? // null = rozpracovaný / spuštěný
+  score       Float?    // Celkový získaný počet bodů
+  feedback    String?   // Slovní komentář učitele k pokusu
+  answers     Answer[]
+
+  @@index([testId])
+  @@index([userId])
+}
+
+model Answer {
+  id              String         @id @default(uuid())
+  attemptId       String
+  attempt         TestAttempt    @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text            String?        // Pro textové otázky
+  selectedOptions QuestionOption[] // Implicitní many-to-many relace
+  points          Float?         // Udělené body (automaticky nebo ručně učitelem)
+  feedback        String?        // Komentář učitele k dané odpovědi
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
 }

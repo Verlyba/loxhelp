@@ -14,6 +14,7 @@ import {
   Settings,
   X,
   Megaphone,
+  FileQuestion,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubject } from "@/lib/data";
@@ -269,6 +270,18 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
               {subject.announcementCount}
             </span>
           )}
+        </Link>
+        <Link
+          to="/subjects/$slug/tests"
+          params={{ slug: subject.slug }}
+          className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
+            pathname.includes("/tests")
+              ? "nav-active font-medium"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
+          }`}
+        >
+          <FileQuestion className="h-4 w-4 shrink-0" />
+          <span className="truncate">Testy</span>
         </Link>
         <div className="my-1 hidden border-t border-border lg:block" />
 

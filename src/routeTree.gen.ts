@@ -19,9 +19,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as SubjectsIndexRouteImport } from './routes/subjects.index'
 import { Route as SubjectsSlugRouteImport } from './routes/subjects.$slug'
 import { Route as SubjectsSlugIndexRouteImport } from './routes/subjects.$slug.index'
+import { Route as SubjectsSlugTestsRouteImport } from './routes/subjects.$slug.tests'
 import { Route as SubjectsSlugOverviewRouteImport } from './routes/subjects.$slug.overview'
 import { Route as SubjectsSlugNewsRouteImport } from './routes/subjects.$slug.news'
 import { Route as SubjectsSlugGroupsRouteImport } from './routes/subjects.$slug.groups'
+import { Route as SubjectsSlugTestsTidRouteImport } from './routes/subjects.$slug.tests.$tid'
 import { Route as SubjectsSlugStudentsSidRouteImport } from './routes/subjects.$slug.students.$sid'
 import { Route as SubjectsSlugPPageSlugRouteImport } from './routes/subjects.$slug.p.$pageSlug'
 import { Route as SubjectsSlugAssignmentsAidRouteImport } from './routes/subjects.$slug.assignments.$aid'
@@ -76,6 +78,11 @@ const SubjectsSlugIndexRoute = SubjectsSlugIndexRouteImport.update({
   path: '/',
   getParentRoute: () => SubjectsSlugRoute,
 } as any)
+const SubjectsSlugTestsRoute = SubjectsSlugTestsRouteImport.update({
+  id: '/tests',
+  path: '/tests',
+  getParentRoute: () => SubjectsSlugRoute,
+} as any)
 const SubjectsSlugOverviewRoute = SubjectsSlugOverviewRouteImport.update({
   id: '/overview',
   path: '/overview',
@@ -90,6 +97,11 @@ const SubjectsSlugGroupsRoute = SubjectsSlugGroupsRouteImport.update({
   id: '/groups',
   path: '/groups',
   getParentRoute: () => SubjectsSlugRoute,
+} as any)
+const SubjectsSlugTestsTidRoute = SubjectsSlugTestsTidRouteImport.update({
+  id: '/$tid',
+  path: '/$tid',
+  getParentRoute: () => SubjectsSlugTestsRoute,
 } as any)
 const SubjectsSlugStudentsSidRoute = SubjectsSlugStudentsSidRouteImport.update({
   id: '/students/$sid',
@@ -121,10 +133,12 @@ export interface FileRoutesByFullPath {
   '/subjects/$slug/groups': typeof SubjectsSlugGroupsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
   '/subjects/$slug/overview': typeof SubjectsSlugOverviewRoute
+  '/subjects/$slug/tests': typeof SubjectsSlugTestsRouteWithChildren
   '/subjects/$slug/': typeof SubjectsSlugIndexRoute
   '/subjects/$slug/assignments/$aid': typeof SubjectsSlugAssignmentsAidRoute
   '/subjects/$slug/p/$pageSlug': typeof SubjectsSlugPPageSlugRoute
   '/subjects/$slug/students/$sid': typeof SubjectsSlugStudentsSidRoute
+  '/subjects/$slug/tests/$tid': typeof SubjectsSlugTestsTidRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -137,10 +151,12 @@ export interface FileRoutesByTo {
   '/subjects/$slug/groups': typeof SubjectsSlugGroupsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
   '/subjects/$slug/overview': typeof SubjectsSlugOverviewRoute
+  '/subjects/$slug/tests': typeof SubjectsSlugTestsRouteWithChildren
   '/subjects/$slug': typeof SubjectsSlugIndexRoute
   '/subjects/$slug/assignments/$aid': typeof SubjectsSlugAssignmentsAidRoute
   '/subjects/$slug/p/$pageSlug': typeof SubjectsSlugPPageSlugRoute
   '/subjects/$slug/students/$sid': typeof SubjectsSlugStudentsSidRoute
+  '/subjects/$slug/tests/$tid': typeof SubjectsSlugTestsTidRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -156,10 +172,12 @@ export interface FileRoutesById {
   '/subjects/$slug/groups': typeof SubjectsSlugGroupsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
   '/subjects/$slug/overview': typeof SubjectsSlugOverviewRoute
+  '/subjects/$slug/tests': typeof SubjectsSlugTestsRouteWithChildren
   '/subjects/$slug/': typeof SubjectsSlugIndexRoute
   '/subjects/$slug/assignments/$aid': typeof SubjectsSlugAssignmentsAidRoute
   '/subjects/$slug/p/$pageSlug': typeof SubjectsSlugPPageSlugRoute
   '/subjects/$slug/students/$sid': typeof SubjectsSlugStudentsSidRoute
+  '/subjects/$slug/tests/$tid': typeof SubjectsSlugTestsTidRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -176,10 +194,12 @@ export interface FileRouteTypes {
     | '/subjects/$slug/groups'
     | '/subjects/$slug/news'
     | '/subjects/$slug/overview'
+    | '/subjects/$slug/tests'
     | '/subjects/$slug/'
     | '/subjects/$slug/assignments/$aid'
     | '/subjects/$slug/p/$pageSlug'
     | '/subjects/$slug/students/$sid'
+    | '/subjects/$slug/tests/$tid'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -192,10 +212,12 @@ export interface FileRouteTypes {
     | '/subjects/$slug/groups'
     | '/subjects/$slug/news'
     | '/subjects/$slug/overview'
+    | '/subjects/$slug/tests'
     | '/subjects/$slug'
     | '/subjects/$slug/assignments/$aid'
     | '/subjects/$slug/p/$pageSlug'
     | '/subjects/$slug/students/$sid'
+    | '/subjects/$slug/tests/$tid'
   id:
     | '__root__'
     | '/'
@@ -210,10 +232,12 @@ export interface FileRouteTypes {
     | '/subjects/$slug/groups'
     | '/subjects/$slug/news'
     | '/subjects/$slug/overview'
+    | '/subjects/$slug/tests'
     | '/subjects/$slug/'
     | '/subjects/$slug/assignments/$aid'
     | '/subjects/$slug/p/$pageSlug'
     | '/subjects/$slug/students/$sid'
+    | '/subjects/$slug/tests/$tid'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -298,6 +322,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SubjectsSlugIndexRouteImport
       parentRoute: typeof SubjectsSlugRoute
     }
+    '/subjects/$slug/tests': {
+      id: '/subjects/$slug/tests'
+      path: '/tests'
+      fullPath: '/subjects/$slug/tests'
+      preLoaderRoute: typeof SubjectsSlugTestsRouteImport
+      parentRoute: typeof SubjectsSlugRoute
+    }
     '/subjects/$slug/overview': {
       id: '/subjects/$slug/overview'
       path: '/overview'
@@ -318,6 +349,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/subjects/$slug/groups'
       preLoaderRoute: typeof SubjectsSlugGroupsRouteImport
       parentRoute: typeof SubjectsSlugRoute
+    }
+    '/subjects/$slug/tests/$tid': {
+      id: '/subjects/$slug/tests/$tid'
+      path: '/$tid'
+      fullPath: '/subjects/$slug/tests/$tid'
+      preLoaderRoute: typeof SubjectsSlugTestsTidRouteImport
+      parentRoute: typeof SubjectsSlugTestsRoute
     }
     '/subjects/$slug/students/$sid': {
       id: '/subjects/$slug/students/$sid'
@@ -343,10 +381,22 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SubjectsSlugTestsRouteChildren {
+  SubjectsSlugTestsTidRoute: typeof SubjectsSlugTestsTidRoute
+}
+
+const SubjectsSlugTestsRouteChildren: SubjectsSlugTestsRouteChildren = {
+  SubjectsSlugTestsTidRoute: SubjectsSlugTestsTidRoute,
+}
+
+const SubjectsSlugTestsRouteWithChildren =
+  SubjectsSlugTestsRoute._addFileChildren(SubjectsSlugTestsRouteChildren)
+
 interface SubjectsSlugRouteChildren {
   SubjectsSlugGroupsRoute: typeof SubjectsSlugGroupsRoute
   SubjectsSlugNewsRoute: typeof SubjectsSlugNewsRoute
   SubjectsSlugOverviewRoute: typeof SubjectsSlugOverviewRoute
+  SubjectsSlugTestsRoute: typeof SubjectsSlugTestsRouteWithChildren
   SubjectsSlugIndexRoute: typeof SubjectsSlugIndexRoute
   SubjectsSlugAssignmentsAidRoute: typeof SubjectsSlugAssignmentsAidRoute
   SubjectsSlugPPageSlugRoute: typeof SubjectsSlugPPageSlugRoute
@@ -357,6 +407,7 @@ const SubjectsSlugRouteChildren: SubjectsSlugRouteChildren = {
   SubjectsSlugGroupsRoute: SubjectsSlugGroupsRoute,
   SubjectsSlugNewsRoute: SubjectsSlugNewsRoute,
   SubjectsSlugOverviewRoute: SubjectsSlugOverviewRoute,
+  SubjectsSlugTestsRoute: SubjectsSlugTestsRouteWithChildren,
   SubjectsSlugIndexRoute: SubjectsSlugIndexRoute,
   SubjectsSlugAssignmentsAidRoute: SubjectsSlugAssignmentsAidRoute,
   SubjectsSlugPPageSlugRoute: SubjectsSlugPPageSlugRoute,

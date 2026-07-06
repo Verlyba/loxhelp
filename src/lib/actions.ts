@@ -10,13 +10,13 @@ import { generatePairsInGroupCore } from "@/lib/pairing";
 import { isStaff, ROLES } from "@/lib/roles";
 import type { SessionUser, TargetType } from "@/lib/types";
 
-async function requireUser(): Promise<SessionUser> {
+export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) throw redirect({ to: "/auth" });
   return user;
 }
 
-async function requireStaff(): Promise<SessionUser> {
+export async function requireStaff(): Promise<SessionUser> {
   const user = await requireUser();
   if (!isStaff(user.role)) throw new Error("Tato akce vyžaduje práva učitele.");
   return user;
