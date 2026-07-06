@@ -991,6 +991,20 @@ export const updateCourseFile = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Toggle a material between draft and published (PRD §5A). Staff only. */
+export const setCourseFilePublished = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().min(1), isPublished: z.boolean() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    await db.subjectFile.update({
+      where: { id: data.id },
+      data: { isPublished: data.isPublished },
+    });
+    return { ok: true };
+  });
+
 // --- student unenrollment ---
 
 export const unenrollStudent = createServerFn({ method: "POST" })

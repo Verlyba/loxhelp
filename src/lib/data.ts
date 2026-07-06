@@ -547,11 +547,13 @@ export const getSubjectPage = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const user = await requireUser();
 
+    const staff = isStaff(user.role);
     const page = await db.subjectPage.findFirst({
       where: { slug: data.pageSlug, subject: { slug: data.subjectSlug } },
       include: {
         subject: { select: { id: true } },
-        files: { orderBy: { order: "asc" } },
+        // Students see only published materials (PRD §5A); staff see drafts too.
+        files: { where: staff ? {} : { isPublished: true }, orderBy: { order: "asc" } },
       },
     });
     if (!page) throw redirect({ to: "/subjects/$slug", params: { slug: data.subjectSlug } });
@@ -572,6 +574,7 @@ export const getSubjectPage = createServerFn({ method: "GET" })
         mimeType: f.mimeType,
         category: f.category,
         description: f.description,
+        isPublished: f.isPublished,
       })),
     };
   });

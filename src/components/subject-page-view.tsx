@@ -15,6 +15,8 @@ import {
   Trash2,
   FolderOpen,
   Upload,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   updateSubjectPage,
@@ -23,6 +25,7 @@ import {
   uploadCourseFile,
   deleteCourseFile,
   updateCourseFile,
+  setCourseFilePublished,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -291,6 +294,11 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
                 >
                   {CATEGORY_LABELS[file.category] || file.category}
                 </span>
+                {!file.isPublished && (
+                  <span className="rounded-full bg-amber-50 px-1.5 py-px font-semibold text-amber-700 ring-1 ring-amber-200">
+                    Koncept
+                  </span>
+                )}
                 <span className="font-mono text-muted-foreground">
                   {formatBytes(file.fileSize)}
                 </span>
@@ -379,6 +387,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
   const router = useRouter();
   const deleteFile = useServerFn(deleteCourseFile);
   const updateFile = useServerFn(updateCourseFile);
+  const setPublished = useServerFn(setCourseFilePublished);
 
   const [isEditing, setIsEditing] = useState(false);
   const [label, setLabel] = useState(file.label);
@@ -475,15 +484,43 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
     );
   }
 
+  const togglePublished = async () => {
+    setBusy(true);
+    try {
+      await setPublished({ data: { id: file.id, isPublished: !file.isPublished } });
+      toast.success(file.isPublished ? "Materiál skryt (koncept)." : "Materiál zveřejněn.");
+      await router.invalidate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="flex items-center justify-between p-2.5 border border-border rounded-lg bg-card text-sm">
+    <div className="flex items-center justify-between gap-2 p-2.5 border border-border rounded-lg bg-card text-sm">
       <div className="min-w-0">
-        <p className="font-semibold text-foreground truncate">{file.label}</p>
+        <div className="flex items-center gap-2">
+          <p className="font-semibold text-foreground truncate">{file.label}</p>
+          {!file.isPublished && (
+            <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+              Koncept
+            </span>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground truncate">
           {file.fileName} · {file.category}
         </p>
       </div>
-      <div className="flex gap-1">
+      <div className="flex shrink-0 gap-1">
+        <button
+          type="button"
+          onClick={togglePublished}
+          disabled={busy}
+          className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted disabled:opacity-50"
+          title={file.isPublished ? "Skrýt (přepnout na koncept)" : "Zveřejnit studentům"}
+          aria-label={file.isPublished ? "Skrýt materiál" : "Zveřejnit materiál"}
+        >
+          {file.isPublished ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+        </button>
         <button
           type="button"
           onClick={() => setIsEditing(true)}

@@ -96,6 +96,7 @@ export interface SubjectFileItem {
   mimeType: string;
   category: string;
   description: string;
+  isPublished: boolean;
 }
 
 export interface SubjectPageNav {
