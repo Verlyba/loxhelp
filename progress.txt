@@ -42,10 +42,13 @@
     - UI studenta: pokud souhlas chybí, odevzdávání se skryje a zobrazí se `ConsentCard` (s možností zadat variantu a odeslat souhlas). Po udělení se odemkne nahrávání a ukáže se zelený info banner.
     - UI učitele: u každého člena jednotky (včetně dvojic/skupin) svítí ✓/✗ indikátor souhlasu a dole na stránce je tabulka „Evidence digitálních souhlasů“ pro právní krytí.
 
-[ ] Modul Testy – Správa testů (§2).
-    Schema: Test(subjectId, title, isPublished, timeLimit?), Question(testId, text, type), Option,
-    Attempt(testId, userId, startedAt, submittedAt, score), Answer. CRUD + RBAC, draft/published,
-    spuštění studentem, auto-hodnocení výběrových otázek + ruční u otevřených. Dedikovaná stránka.
+[x] Modul Testy – Správa testů (§2).
+    Hotovo (iterace 5, commit [next]):
+    - Schéma v DB pushnuto: Test, Question, QuestionOption, TestAttempt, Answer modely.
+    - CRUD mutace a data loaders na backendu (test-actions, test-data) s RBAC kontrolami a skrýváním správných voleb pro studenty před odevzdáním.
+    - Odpočet času na frontendu studenta s automatickým odevzdáním po vypršení limitu.
+    - Učitelé mají editor otázek, nastavení a rozhraní pro ruční hodnocení otevřených textových otázek s celkovým skóre a zpětnou vazbou.
+    - Ověřeno přes `bunx tsc`, `bunx eslint .` a `bun run build`.
 
 [ ] Import studentů z matrik CSV/XLSX (§5D).
     Rozšířit stávající hromadný import o parser Bakaláři/ŠkolaOnLine exportu; celý zápis v transakci
