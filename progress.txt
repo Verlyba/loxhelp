@@ -25,9 +25,14 @@
     - Pozn.: karta žáka zatím audit nezobrazuje (stačí GradingModal); lze doplnit později.
       SpeedGrader-lite náhled je už hotový (paralelní práce) — viz poslední bod.
 
-[ ] Draft/published materiálů (§5A).
-    Server: toggle isPublished na SubjectFile (staff), getSubjectPage vrací studentům jen published.
-    UI: přepínač koncept/zveřejněno v MaterialsManager + odznak u materiálu. Student koncept nevidí.
+[x] Draft/published materiálů (§5A).
+    Hotovo (iterace 3, commit 1ac93e8):
+    - getSubjectPage: pro studenty `files: { where: { isPublished: true } }`, staff vidí vše.
+      SubjectFileItem rozšířen o isPublished.
+    - setCourseFilePublished (staff-only) toggle akce.
+    - UI: FileEditRow má Eye/EyeOff přepínač + odznak "Koncept"; FileGrid ukazuje odznak "Koncept"
+      u nezveřejněných (staff je na stránce vidí). Nové uploady jsou default published (schema default true).
+    - Pozn.: úkoly (Assignment.isPublished) i testy budou mít stejný pattern; testy zatím neexistují.
 
 [ ] Evidence souhlasu studenta (§5B).
     Server: recordConsent (uloží AssignmentConsent s frozen textem + variantou, timestamp).
