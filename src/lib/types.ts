@@ -159,6 +159,18 @@ export interface SubjectDetail extends SubjectCard {
   announcementCount: number;
 }
 
+/* ---------- audit log (PRD §5C) ---------- */
+
+export interface AuditEntryView {
+  id: string;
+  action: string; // GRADE_SET | GRADE_CHANGE | GRADE_DELETE | FEEDBACK_CHANGE | SUBMISSION_LOCK | …
+  actorName: string;
+  targetName: string;
+  oldValue: string | null;
+  newValue: string | null;
+  createdAt: string; // ISO
+}
+
 /* ---------- karta žáka (Moodle "user report") ---------- */
 
 export interface StudentCardRow {

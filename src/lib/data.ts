@@ -9,6 +9,7 @@ import type {
   ActivityItem,
   AdminData,
   AnnouncementItem,
+  AuditEntryView,
   AssignmentBrief,
   AssignmentDetail,
   AssignmentOverview,
@@ -1085,6 +1086,34 @@ export const getClassOverview = createServerFn({ method: "GET" })
       })),
       rows,
     };
+  });
+
+// --- audit trail viewer (staff) — PRD §5C ---
+
+export const getGradeAudit = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({ assignmentId: z.string().min(1), userIds: z.array(z.string().min(1)).min(1) })
+      .parse(d),
+  )
+  .handler(async ({ data }): Promise<AuditEntryView[]> => {
+    await requireStaffUser();
+    const ids = data.userIds.map((u) => `${data.assignmentId}:${u}`);
+    const logs = await db.auditLog.findMany({
+      where: { entityType: "Grade", entityId: { in: ids } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      include: { actor: { select: { firstName: true, lastName: true } } },
+    });
+    return logs.map((l) => ({
+      id: l.id,
+      action: l.action,
+      actorName: fullName(l.actor),
+      targetName: l.targetName,
+      oldValue: l.oldValue,
+      newValue: l.newValue,
+      createdAt: l.createdAt.toISOString(),
+    }));
   });
 
 // --- karta žáka (staff) — Moodle-style per-course user report ---

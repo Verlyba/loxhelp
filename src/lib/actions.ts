@@ -22,6 +22,35 @@ async function requireStaff(): Promise<SessionUser> {
   return user;
 }
 
+// Transaction client type (the `tx` passed to db.$transaction's callback).
+type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
+interface AuditEntry {
+  action: string;
+  entityType: string;
+  entityId: string;
+  targetName?: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+  meta?: string | null;
+}
+
+/** Writes one AuditLog row inside the caller's transaction (PRD §5C). */
+async function writeAudit(tx: Tx, actorId: string, e: AuditEntry): Promise<void> {
+  await tx.auditLog.create({
+    data: {
+      actorId,
+      action: e.action,
+      entityType: e.entityType,
+      entityId: e.entityId,
+      targetName: e.targetName ?? "",
+      oldValue: e.oldValue ?? null,
+      newValue: e.newValue ?? null,
+      meta: e.meta ?? null,
+    },
+  });
+}
+
 // --- submissions (upload/download per unit) ---
 
 const UPLOAD_ROOT = "uploads";
@@ -203,7 +232,14 @@ export const updateSubmissionState = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    await requireStaff();
+    const actor = await requireStaff();
+
+    // Human-readable target names for the audit trail (read-only, outside tx).
+    const users = await db.user.findMany({
+      where: { id: { in: data.userIds } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`]));
 
     await db.$transaction(async (tx) => {
       for (const userId of data.userIds) {
@@ -231,6 +267,53 @@ export const updateSubmissionState = createServerFn({ method: "POST" })
         } else {
           await tx.grade.create({
             data: { assignmentId: data.assignmentId, userId, ...next },
+          });
+        }
+
+        // --- audit trail (PRD §5C): one row per changed dimension ---
+        const entityId = `${data.assignmentId}:${userId}`;
+        const targetName = nameById.get(userId) ?? userId;
+        const prevExt = existing?.extension ? existing.extension.toISOString() : null;
+        const nextExt = next.extension ? next.extension.toISOString() : null;
+
+        if ((existing?.value ?? null) !== next.value) {
+          await writeAudit(tx, actor.id, {
+            action: !existing?.value ? "GRADE_SET" : !next.value ? "GRADE_DELETE" : "GRADE_CHANGE",
+            entityType: "Grade",
+            entityId,
+            targetName,
+            oldValue: existing?.value ?? null,
+            newValue: next.value,
+          });
+        }
+        if ((existing?.note ?? null) !== next.note) {
+          await writeAudit(tx, actor.id, {
+            action: "FEEDBACK_CHANGE",
+            entityType: "Grade",
+            entityId,
+            targetName,
+            oldValue: existing?.note ?? null,
+            newValue: next.note,
+          });
+        }
+        if ((existing?.locked ?? false) !== next.locked) {
+          await writeAudit(tx, actor.id, {
+            action: next.locked ? "SUBMISSION_LOCK" : "SUBMISSION_UNLOCK",
+            entityType: "Grade",
+            entityId,
+            targetName,
+            oldValue: String(existing?.locked ?? false),
+            newValue: String(next.locked),
+          });
+        }
+        if (prevExt !== nextExt) {
+          await writeAudit(tx, actor.id, {
+            action: nextExt ? "EXTENSION_SET" : "EXTENSION_CLEAR",
+            entityType: "Grade",
+            entityId,
+            targetName,
+            oldValue: prevExt,
+            newValue: nextExt,
           });
         }
       }

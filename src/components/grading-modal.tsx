@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useRouter } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   X,
   Lock,
@@ -14,10 +15,79 @@ import {
   Eye,
   Loader2,
   FileText,
+  ChevronRight,
 } from "lucide-react";
 import { updateSubmissionState, downloadSubmission } from "@/lib/actions";
+import { getGradeAudit } from "@/lib/data";
 import { formatDateTime, formatBytes } from "@/lib/format";
 import type { VersionItem } from "@/lib/types";
+
+const AUDIT_LABEL: Record<string, string> = {
+  GRADE_SET: "Zapsána známka",
+  GRADE_CHANGE: "Změněna známka",
+  GRADE_DELETE: "Smazána známka",
+  FEEDBACK_CHANGE: "Upraveno slovní hodnocení",
+  SUBMISSION_LOCK: "Uzamčeno odevzdávání",
+  SUBMISSION_UNLOCK: "Odemčeno odevzdávání",
+  EXTENSION_SET: "Prodloužen termín",
+  EXTENSION_CLEAR: "Zrušeno prodloužení",
+};
+
+/** Read-only classification history for the unit (PRD §5C). */
+function AuditHistory({
+  assignmentId,
+  userIds,
+  refreshKey,
+}: {
+  assignmentId: string;
+  userIds: string[];
+  refreshKey: string;
+}) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["grade-audit", assignmentId, userIds.join(","), refreshKey],
+    queryFn: () => getGradeAudit({ data: { assignmentId, userIds } }),
+  });
+  const entries = data ?? [];
+
+  return (
+    <details className="group">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 border-b border-border/50 pb-1.5 font-display text-sm font-semibold text-foreground">
+        <ChevronRight className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-90" />
+        <History className="h-4 w-4 text-subject" /> Historie hodnocení (audit)
+        {entries.length > 0 ? ` (${entries.length})` : ""}
+      </summary>
+      <div className="mt-2">
+        {isLoading ? (
+          <p className="text-xs text-muted-foreground">Načítám…</p>
+        ) : entries.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Zatím žádné změny klasifikace.</p>
+        ) : (
+          <ul className="space-y-1.5 text-xs">
+            {entries.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="font-medium text-foreground">
+                  {AUDIT_LABEL[e.action] ?? e.action}
+                </span>
+                <span className="text-muted-foreground">
+                  {e.oldValue != null && (
+                    <>
+                      <span className="line-through">{e.oldValue || "—"}</span>
+                      {" → "}
+                    </>
+                  )}
+                  <span className="font-semibold text-foreground">{e.newValue ?? "—"}</span>
+                </span>
+                <span className="ml-auto text-muted-foreground">
+                  {e.actorName} · {formatDateTime(e.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </details>
+  );
+}
 
 interface GradingModalProps {
   isOpen: boolean;
@@ -502,6 +572,13 @@ export function GradingModal({
                   </ul>
                 )}
               </div>
+
+              {/* Audit trail (PRD §5C) */}
+              <AuditHistory
+                assignmentId={assignmentId}
+                userIds={unit.members.map((m) => m.id)}
+                refreshKey={unit.grade ?? ""}
+              />
 
               {error && (
                 <div className="p-3 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm flex items-start gap-2">
