@@ -73,7 +73,7 @@ function StaffDashboard({ data }: { data: Extract<DashboardData, { kind: "staff"
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{v.fileName}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {v.groupName} · {v.uploadedByName} · {formatDateTime(v.uploadedAt)}
+                      {v.unitName} · {v.uploadedByName} · {formatDateTime(v.uploadedAt)}
                     </p>
                   </div>
                 </li>

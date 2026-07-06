@@ -5,7 +5,7 @@ import { hashPassword } from "../src/lib/password";
 
 /**
  * Seeds a realistic starting state: staff + students, one class with two
- * themed subjects, enrollments, assignments (incl. an overdue one), groups and
+ * themed subjects, enrollments, assignments, study groups, pairs, and
  * one example submission with a real file on disk so download works.
  *
  * Loxone subject pages are based on the real Moodle course "Loxone praxe 2EB 25/26".
@@ -28,9 +28,12 @@ function getMimeType(fileName: string): string {
 
 async function main() {
   // Clear in FK-safe order.
+  await db.grade.deleteMany();
   await db.submission.deleteMany();
-  await db.groupMember.deleteMany();
-  await db.group.deleteMany();
+  await db.pairMember.deleteMany();
+  await db.pair.deleteMany();
+  await db.studyGroupMember.deleteMany();
+  await db.studyGroup.deleteMany();
   await db.assignment.deleteMany();
   await db.enrollment.deleteMany();
   await db.subjectFile.deleteMany();
@@ -40,24 +43,24 @@ async function main() {
   await db.session.deleteMany();
   await db.user.deleteMany();
 
+  const schoolClass = await db.class.create({
+    data: { name: "2.EB", schoolYear: "2025/2026" },
+  });
+
   const pw = hashPassword(PASSWORD);
-  const mkUser = (email: string, firstName: string, lastName: string, role: string) =>
-    db.user.create({ data: { email, firstName, lastName, role, passwordHash: pw } });
+  const mkUser = (email: string, firstName: string, lastName: string, role: string, classId?: string) =>
+    db.user.create({ data: { email, firstName, lastName, role, passwordHash: pw, classId } });
 
   const admin = await mkUser("admin@school.cz", "Admin", "Školní", "ADMIN");
   const teacher = await mkUser("novak@school.cz", "Jan", "Novák", "TEACHER");
 
-  const anna = await mkUser("anna@school.cz", "Anna", "Nováková", "STUDENT");
-  const petr = await mkUser("petr@school.cz", "Petr", "Kovář", "STUDENT");
-  const jana = await mkUser("jana@school.cz", "Jana", "Svobodová", "STUDENT");
-  const tomas = await mkUser("tomas@school.cz", "Tomáš", "Liška", "STUDENT");
-  const marek = await mkUser("marek@school.cz", "Marek", "Veselý", "STUDENT");
-  const klara = await mkUser("klara@school.cz", "Klára", "Dvořáková", "STUDENT");
-  const honza = await mkUser("honza@school.cz", "Honza", "Fiala", "STUDENT");
-
-  const schoolClass = await db.class.create({
-    data: { name: "2.EB", schoolYear: "2025/2026" },
-  });
+  const anna = await mkUser("anna@school.cz", "Anna", "Nováková", "STUDENT", schoolClass.id);
+  const petr = await mkUser("petr@school.cz", "Petr", "Kovář", "STUDENT", schoolClass.id);
+  const jana = await mkUser("jana@school.cz", "Jana", "Svobodová", "STUDENT", schoolClass.id);
+  const tomas = await mkUser("tomas@school.cz", "Tomáš", "Liška", "STUDENT", schoolClass.id);
+  const marek = await mkUser("marek@school.cz", "Marek", "Veselý", "STUDENT", schoolClass.id);
+  const klara = await mkUser("klara@school.cz", "Klára", "Dvořáková", "STUDENT", schoolClass.id);
+  const honza = await mkUser("honza@school.cz", "Honza", "Fiala", "STUDENT", schoolClass.id);
 
   const loxone = await db.subject.create({
     data: {
@@ -76,6 +79,79 @@ async function main() {
       themeStyle: "cad3d",
       classId: schoolClass.id,
     },
+  });
+
+  // ========================
+  //  STUDY GROUPS & STABLE PAIRS (v2 schema)
+  // ========================
+
+  const l1 = await db.studyGroup.create({
+    data: {
+      subjectId: loxone.id,
+      name: "L1",
+      members: {
+        create: [
+          { userId: anna.id },
+          { userId: petr.id },
+          { userId: jana.id },
+          { userId: tomas.id }
+        ]
+      }
+    }
+  });
+
+  const l1_pair1 = await db.pair.create({
+    data: {
+      studyGroupId: l1.id,
+      name: "Dvojice 1",
+      members: {
+        create: [
+          { userId: anna.id },
+          { userId: petr.id }
+        ]
+      }
+    }
+  });
+
+  const l1_pair2 = await db.pair.create({
+    data: {
+      studyGroupId: l1.id,
+      name: "Dvojice 2",
+      members: {
+        create: [
+          { userId: jana.id },
+          { userId: tomas.id }
+        ]
+      }
+    }
+  });
+
+  const s1 = await db.studyGroup.create({
+    data: {
+      subjectId: cad.id,
+      name: "S1",
+      members: {
+        create: [
+          { userId: marek.id },
+          { userId: klara.id },
+          { userId: honza.id }
+        ]
+      }
+    }
+  });
+
+  const s1_pair1 = await db.pair.create({
+    data: {
+      studyGroupId: s1.id,
+      name: "Dvojice 1",
+      members: {
+        create: [
+          { userId: marek.id },
+          { userId: klara.id },
+          { userId: honza.id }
+        ]
+      }
+    }
   });
 
   // ========================
@@ -376,6 +452,7 @@ V průběhu školního roku jsou naplánovány dva hlavní teoreticko-praktické
               fileSize: stats.size,
               mimeType: getMimeType(fileInfo.fileName),
               category: fileInfo.category,
+              description: fileInfo.description,
               order: i,
             },
           });
@@ -454,6 +531,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Naprogramujte kompletní panel v učebně – osvětlení, stínění, vytápění a přístupy v jednom programu.",
       dueDate: new Date("2026-06-26T00:00:00Z"),
       subjectId: loxone.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
   const a_osvetleni = await db.assignment.create({
@@ -463,6 +542,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Samostatná práce na téma osvětlení. Naprogramujte funkční bloky pro různé typy svítidel a světelné scény.",
       dueDate: new Date("2026-06-30T21:59:00Z"),
       subjectId: loxone.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
   const a_nocni = await db.assignment.create({
@@ -472,6 +553,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Vytvořte noční režim pro domácnost – ztlumení osvětlení, zavření žaluzií, úprava teploty a zabezpečení.",
       dueDate: new Date("2026-01-17T17:00:00Z"),
       subjectId: loxone.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
   const a_topeni = await db.assignment.create({
@@ -481,6 +564,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Naprogramujte regulaci vytápění pro celý objekt – zonální řízení, IRoomController, teplotní senzory.",
       dueDate: new Date("2025-11-14T17:00:00Z"), // overdue
       subjectId: loxone.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
   const a_zvoneni = await db.assignment.create({
@@ -490,6 +575,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Nastavte automatické přepínání zvonění v nočních hodinách – ztlumení/vypnutí zvonku podle časového plánu.",
       dueDate: new Date("2026-03-21T16:00:00Z"),
       subjectId: loxone.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
   const a_zakaznik = await db.assignment.create({
@@ -499,6 +586,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Připravte návrh řešení pro zákazníka: automatická ochrana garáže před mrazem pomocí systému Loxone.",
       dueDate: new Date("2026-07-01T17:00:00Z"),
       subjectId: loxone.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
 
@@ -510,6 +599,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Navrhněte nosnou konzoli, sestavu se dvěma spojovacími prvky a plně okótovaný výkres.",
       dueDate: new Date("2026-07-05T21:59:00Z"),
       subjectId: cad.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
   const a4 = await db.assignment.create({
@@ -519,28 +610,10 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
         "Vytvořte rozpadlý pohled sestavy s pozicemi a vygenerovaný kusovník na výkresovém listu.",
       dueDate: new Date("2026-06-18T21:59:00Z"), // overdue
       subjectId: cad.id,
+      targetType: "PAIR",
+      isPublished: true,
     },
   });
-
-  // Groups + members.
-  const mkGroup = async (name: string, assignmentId: string, memberIds: string[]) => {
-    const group = await db.group.create({ data: { name, assignmentId } });
-    for (const userId of memberIds) {
-      await db.groupMember.create({ data: { groupId: group.id, userId } });
-    }
-    return group;
-  };
-
-  const a1pair1 = await mkGroup("Dvojice 1", a_panel.id, [anna.id, petr.id]);
-  await mkGroup("Dvojice 2", a_panel.id, [jana.id, tomas.id]);
-  await mkGroup("Dvojice 1", a_osvetleni.id, [anna.id, petr.id]);
-  await mkGroup("Dvojice 2", a_osvetleni.id, [jana.id, tomas.id]);
-  await mkGroup("Dvojice 1", a_nocni.id, [anna.id, petr.id]);
-  await mkGroup("Dvojice 1", a_topeni.id, [anna.id, jana.id]);
-  await mkGroup("Dvojice 1", a_zvoneni.id, [petr.id, tomas.id]);
-  await mkGroup("Dvojice 1", a_zakaznik.id, [anna.id, petr.id]);
-  await mkGroup("Tým A", a3.id, [marek.id, klara.id, honza.id]);
-  await mkGroup("Tým A", a4.id, [marek.id, klara.id, honza.id]);
 
   // One example submission with a real file on disk (so download works).
   const fileKey = "uploads/seed/panel_program_v1.txt";
@@ -550,16 +623,68 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
   writeFileSync(abs, contents, "utf8");
   await db.submission.create({
     data: {
+      assignmentId: a_panel.id,
       version: 1,
+      unitKey: `p:${l1_pair1.id}`,
+      pairId: l1_pair1.id,
       fileName: "panel_program_v1.txt",
       fileKey,
       fileSize: Buffer.byteLength(contents),
       mimeType: "text/plain",
       note: "První návrh zapojení panelu",
       uploadedById: anna.id,
-      groupId: a1pair1.id,
     },
   });
+
+  // Seed some grades, comments, locks, and extensions to make the dashboard rich
+  // 1) Overdue Loxone task "Řízení topení v objektu": grade Anna and Petr (Dvojice 1)
+  const contentsTopeni = "Odevzdaný projekt topení. Loxone Config program.\n";
+  const fileKeyTopeni = "uploads/seed/topeni_final.txt";
+  const absTopeni = resolve(process.cwd(), fileKeyTopeni);
+  mkdirSync(dirname(absTopeni), { recursive: true });
+  writeFileSync(absTopeni, contentsTopeni, "utf8");
+
+  await db.submission.create({
+    data: {
+      assignmentId: a_topeni.id,
+      version: 1,
+      unitKey: `p:${l1_pair1.id}`,
+      pairId: l1_pair1.id,
+      fileName: "topeni_final.txt",
+      fileKey: fileKeyTopeni,
+      fileSize: Buffer.byteLength(contentsTopeni),
+      mimeType: "text/plain",
+      note: "Finální program vytápění pro RD",
+      uploadedById: anna.id,
+    },
+  });
+
+  const feedbackText = "Výborná práce s regulací IRC, logické řazení ventilů a implementace útlumových režimů.";
+  for (const userId of [anna.id, petr.id]) {
+    await db.grade.create({
+      data: {
+        assignmentId: a_topeni.id,
+        userId,
+        value: "1-",
+        note: feedbackText,
+        locked: true, // locked because graded
+      },
+    });
+  }
+
+  // 2) "Noční režim": extend deadline for Jana and Tomáš (Dvojice 2)
+  for (const userId of [jana.id, tomas.id]) {
+    await db.grade.create({
+      data: {
+        assignmentId: a_nocni.id,
+        userId,
+        value: null,
+        note: "Prodlouženo na žádost studentů z důvodu nemoci parťáka.",
+        locked: false,
+        extension: new Date("2026-08-20T17:00:00Z"),
+      },
+    });
+  }
 
   const counts = {
     users: await db.user.count(),
@@ -567,7 +692,8 @@ V této sekci naleznete příručky, odkazy na dokumentaci a užitečná videa z
     subjectPages: await db.subjectPage.count(),
     subjectFiles: await db.subjectFile.count(),
     assignments: await db.assignment.count(),
-    groups: await db.group.count(),
+    studyGroups: await db.studyGroup.count(),
+    pairs: await db.pair.count(),
     submissions: await db.submission.count(),
   };
   console.log("Seed complete:", counts);

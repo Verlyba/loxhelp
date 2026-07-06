@@ -22,13 +22,72 @@ model User {
   firstName    String
   lastName     String
   role         String   @default("STUDENT") // ADMIN | TEACHER | STUDENT
+  classId      String? // students belong to a class (2EB, …)
+  class        Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions     Session[]
-  enrollments  Enrollment[]
-  groupMembers GroupMember[]
-  submissions  Submission[]
+  sessions          Session[]
+  enrollments       Enrollment[]
+  studyGroupMembers StudyGroupMember[]
+  pairMembers       PairMember[]
+  uploads           Submission[]       @relation("Uploader")
+  unitSubmissions   Submission[]       @relation("IndividualUnit")
+  grades            Grade[]
+  announcements     Announcement[]
+  auditLogs         AuditLog[]         @relation("AuditActor")
+  consents          AssignmentConsent[]
+}
+
+// Audit trail for classification/submission-state changes (PRD §5C). Every
+// grade write, lock/unlock, deadline extension or delete leaves a row here so
+// the teacher has a defensible record of who changed what and when.
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actor      User     @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  action     String // GRADE_SET | GRADE_CHANGE | GRADE_DELETE | SUBMISSION_LOCK | SUBMISSION_UNLOCK | EXTENSION_SET | EXTENSION_CLEAR
+  entityType String // "Grade" | "Submission" | …
+  entityId   String // e.g. `${assignmentId}:${userId}`
+  targetName String   @default("") // human label, e.g. student/pair name for quick reading
+  oldValue   String? // previous value (grade/state), null if none
+  newValue   String? // new value, null on delete
+  meta       String? // optional JSON context
+  createdAt  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+}
+
+// Digital consent evidence (PRD §5B). When an assignment requires it, the
+// student confirms they were briefed on terms/criteria and (optionally) chose a
+// variant. Timestamped + user-bound so it stands as proof in later disputes.
+model AssignmentConsent {
+  id            String     @id @default(uuid())
+  assignmentId  String
+  assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acceptedText  String // the exact text the student agreed to (frozen for evidence)
+  variant       String? // chosen option/variant, if the task offered a choice
+  acceptedAt    DateTime   @default(now())
+
+  @@unique([assignmentId, userId])
+  @@index([assignmentId])
+}
+
+// Course announcements (Moodle "News forum") — teacher posts, students read.
+model Announcement {
+  id        String   @id @default(uuid())
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title     String
+  body      String   @default("")
+  createdAt DateTime @default(now())
+
+  @@index([subjectId])
 }
 
 // DB-backed sessions: the cookie holds an opaque token that maps to a row here.
@@ -45,11 +104,12 @@ model Session {
 
 model Class {
   id         String    @id @default(uuid())
-  name       String // e.g. "4.A"
+  name       String // e.g. "2EB"
   schoolYear String // e.g. "2026/2027"
   isArchived Boolean   @default(false)
   createdAt  DateTime  @default(now())
   subjects   Subject[]
+  students   User[]
 }
 
 model Subject {
@@ -61,11 +121,64 @@ model Subject {
   classId     String
   class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
 
-  assignments Assignment[]
-  enrollments Enrollment[]
-  pages       SubjectPage[]
+  assignments   Assignment[]
+  enrollments   Enrollment[]
+  pages         SubjectPage[]
+  studyGroups   StudyGroup[]
+  announcements Announcement[]
 
   @@index([classId])
+}
+
+// Teaching group inside a subject — the class splits into these for lessons
+// (Loxone → L1, L2, L3; CAD → S1, S2). Pairs live inside a study group.
+model StudyGroup {
+  id        String  @id @default(uuid())
+  name      String // "L1", "S2", …
+  subjectId String
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  members     StudyGroupMember[]
+  pairs       Pair[]
+  submissions Submission[]
+
+  @@unique([subjectId, name])
+  @@index([subjectId])
+}
+
+model StudyGroupMember {
+  id           String     @id @default(uuid())
+  studyGroupId String
+  userId       String
+  studyGroup   StudyGroup @relation(fields: [studyGroupId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([studyGroupId, userId])
+  @@index([userId])
+}
+
+// A stable pair within a study group (not per-assignment).
+model Pair {
+  id           String     @id @default(uuid())
+  name         String // "Dvojice 1"
+  studyGroupId String
+  studyGroup   StudyGroup @relation(fields: [studyGroupId], references: [id], onDelete: Cascade)
+
+  members     PairMember[]
+  submissions Submission[]
+
+  @@index([studyGroupId])
+}
+
+model PairMember {
+  id     String @id @default(uuid())
+  pairId String
+  userId String
+  pair   Pair   @relation(fields: [pairId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pairId, userId])
+  @@index([userId])
 }
 
 // A page inside a subject, switched via the left panel. Pages are plain
@@ -102,6 +215,7 @@ model SubjectFile {
   category    String      @default("material") // material | manual | schema | template | presentation
   description String      @default("")
   order       Int         @default(0)
+  isPublished Boolean     @default(true) // draft/published for materials (PRD §5A)
 
   @@index([pageId])
 }
@@ -124,48 +238,66 @@ model Assignment {
   dueDate     DateTime
   subjectId   String
   subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  createdAt   DateTime @default(now())
-  groups      Group[]
+  targetType  String   @default("INDIVIDUAL") // INDIVIDUAL | PAIR | GROUP — who submits
+  isPublished Boolean  @default(false) // teacher publishes ("zadá") the assignment
+
+  // Optional required consent before the student may submit (PRD §5B).
+  requiresConsent Boolean @default(false)
+  consentText     String  @default("")
+
+  createdAt DateTime @default(now())
+
+  submissions Submission[]
+  grades      Grade[]
+  consents    AssignmentConsent[]
 
   @@index([subjectId])
 }
 
-model Group {
-  id           String        @id @default(uuid())
-  name         String // e.g. "Pair 1" / "Group A"
-  assignmentId String
-  assignment   Assignment    @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  members      GroupMember[]
-  submissions  Submission[]
-
-  @@index([assignmentId])
-}
-
-model GroupMember {
-  id      String @id @default(uuid())
-  groupId String
-  userId  String
-  group   Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([groupId, userId])
-  @@index([userId])
-}
-
+// A submitted file version. The "unit" that owns the version depends on the
+// assignment's targetType: a student (INDIVIDUAL), a pair (PAIR) or a study
+// group (GROUP). unitKey ("u:<id>" | "p:<id>" | "g:<id>") makes versioning
+// unique per unit; the nullable FKs allow relational queries.
 model Submission {
-  id           String   @id @default(uuid())
-  version      Int // incremented per group, see app logic
+  id           String      @id @default(uuid())
+  assignmentId String
+  assignment   Assignment  @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  version      Int // incremented per unit
+  unitKey      String
+  userId       String?
+  user         User?       @relation("IndividualUnit", fields: [userId], references: [id], onDelete: Cascade)
+  pairId       String?
+  pair         Pair?       @relation(fields: [pairId], references: [id], onDelete: Cascade)
+  studyGroupId String?
+  studyGroup   StudyGroup? @relation(fields: [studyGroupId], references: [id], onDelete: Cascade)
+
   fileName     String // original file name
   fileKey      String // stored file path/key on disk (uploads/...)
   fileSize     Int // bytes
   mimeType     String   @default("application/octet-stream")
   note         String?
   uploadedById String
-  groupId      String
+  uploadedBy   User     @relation("Uploader", fields: [uploadedById], references: [id])
   createdAt    DateTime @default(now())
-  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
-  group        Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
-  @@unique([groupId, version]) // no two "v2" in the same group
-  @@index([groupId])
+  @@unique([assignmentId, unitKey, version]) // no two "v2" in the same unit
+  @@index([assignmentId])
+  @@index([unitKey])
+}
+
+model Grade {
+  id           String     @id @default(uuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value        String? // "1", "1-", "2", …
+  note         String? // Slovní zpětná vazba (Feedback)
+  locked       Boolean    @default(false)
+  extension    DateTime?  // Prodloužený termín odevzdání
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([assignmentId, userId])
+  @@index([userId])
 }

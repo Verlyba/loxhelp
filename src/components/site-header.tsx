@@ -10,6 +10,7 @@ import {
   X,
   ChevronDown,
   LogOut,
+  Inbox,
 } from "lucide-react";
 import { useState } from "react";
 import { isStaff, roleLabel, type Role } from "@/lib/roles";
@@ -28,6 +29,7 @@ import {
 const nav = [
   { to: "/", label: "Přehled", icon: LayoutDashboard, roles: ["ADMIN", "TEACHER", "STUDENT"] },
   { to: "/subjects", label: "Předměty", icon: BookOpen, roles: ["ADMIN", "TEACHER", "STUDENT"] },
+  { to: "/submissions", label: "Odevzdávárna", icon: Inbox, roles: ["STUDENT"] },
   { to: "/classes", label: "Třídy", icon: Users, roles: ["ADMIN", "TEACHER"] },
   { to: "/admin", label: "Správa", icon: ShieldCheck, roles: ["ADMIN", "TEACHER"] },
 ] as const satisfies ReadonlyArray<{

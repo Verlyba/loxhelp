@@ -44,3 +44,7 @@ dist-ssr
 
 # Uploaded files (local storage)
 uploads/
+course_files/
+
+# Temp dev scripts
+/scratch/

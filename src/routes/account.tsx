@@ -47,10 +47,19 @@ function AccountPage() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3">
-          <Field label="Jméno" value={user.firstName} />
-          <Field label="Příjmení" value={user.lastName} />
-          <Field label="Email" value={user.email} />
+        <div className="mt-6 space-y-3 border-t border-border pt-6 text-sm">
+          <div className="flex justify-between py-1 border-b border-border/40">
+            <span className="text-muted-foreground">Jméno</span>
+            <span className="font-medium text-foreground">{user.firstName}</span>
+          </div>
+          <div className="flex justify-between py-1 border-b border-border/40">
+            <span className="text-muted-foreground">Příjmení</span>
+            <span className="font-medium text-foreground">{user.lastName}</span>
+          </div>
+          <div className="flex justify-between py-1">
+            <span className="text-muted-foreground">Email</span>
+            <span className="font-medium text-foreground">{user.email}</span>
+          </div>
         </div>
 
         <button
@@ -61,18 +70,5 @@ function AccountPage() {
         </button>
       </div>
     </main>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <label className="block text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <input
-        defaultValue={value}
-        readOnly
-        className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-      />
-    </label>
   );
 }

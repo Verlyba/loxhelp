@@ -1,33 +1,24 @@
 import { db } from "@/lib/db";
 
-// Server-only (imported from server-fn handlers and seed/test scripts).
+// Server-only (imported from server-fn handlers and scripts).
 //
-// Splits the subject's enrolled students who are not yet in any group of the
-// assignment into random pairs. With an odd student left over, the last group
-// becomes a trio. Group names continue the existing "Dvojice N" numbering.
-export async function generatePairsCore(
-  assignmentId: string,
-): Promise<{ created: number; grouped: number }> {
-  const assignment = await db.assignment.findUnique({
-    where: { id: assignmentId },
-    select: { subjectId: true },
+// Randomly pairs up members of a study group who aren't in any pair of that
+// group yet. A lone leftover joins the last pair as a trio. Pair names
+// continue the existing "Dvojice N" numbering within the group.
+export async function generatePairsInGroupCore(
+  studyGroupId: string,
+): Promise<{ created: number; paired: number }> {
+  const group = await db.studyGroup.findUnique({
+    where: { id: studyGroupId },
+    include: {
+      members: { select: { userId: true } },
+      pairs: { include: { members: { select: { userId: true } } } },
+    },
   });
-  if (!assignment) throw new Error("Úkol nenalezen.");
+  if (!group) throw new Error("Učební skupina nenalezena.");
 
-  const [enrollments, existingMembers, existingGroups] = await Promise.all([
-    db.enrollment.findMany({
-      where: { subjectId: assignment.subjectId },
-      select: { userId: true },
-    }),
-    db.groupMember.findMany({
-      where: { group: { assignmentId } },
-      select: { userId: true },
-    }),
-    db.group.findMany({ where: { assignmentId }, select: { name: true } }),
-  ]);
-
-  const taken = new Set(existingMembers.map((m) => m.userId));
-  const pool = enrollments.map((e) => e.userId).filter((id) => !taken.has(id));
+  const paired = new Set(group.pairs.flatMap((p) => p.members.map((m) => m.userId)));
+  const pool = group.members.map((m) => m.userId).filter((id) => !paired.has(id));
 
   // Fisher–Yates shuffle.
   for (let i = pool.length - 1; i > 0; i--) {
@@ -35,7 +26,6 @@ export async function generatePairsCore(
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
 
-  // Chunk into pairs; a lone leftover joins the last pair as a trio.
   const chunks: string[][] = [];
   for (let i = 0; i + 1 < pool.length; i += 2) chunks.push([pool[i], pool[i + 1]]);
   if (pool.length % 2 === 1) {
@@ -44,23 +34,22 @@ export async function generatePairsCore(
     else chunks.push([last]);
   }
 
-  // Continue numbering after existing "Dvojice N" groups.
   let counter = 0;
-  for (const g of existingGroups) {
-    const m = /^Dvojice (\d+)$/.exec(g.name);
+  for (const p of group.pairs) {
+    const m = /^Dvojice (\d+)$/.exec(p.name);
     if (m) counter = Math.max(counter, Number(m[1]));
   }
 
   for (const memberIds of chunks) {
     counter += 1;
-    await db.group.create({
+    await db.pair.create({
       data: {
-        assignmentId,
+        studyGroupId,
         name: `Dvojice ${counter}`,
         members: { create: memberIds.map((userId) => ({ userId })) },
       },
     });
   }
 
-  return { created: chunks.length, grouped: pool.length };
+  return { created: chunks.length, paired: pool.length };
 }

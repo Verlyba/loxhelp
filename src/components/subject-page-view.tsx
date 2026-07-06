@@ -1,12 +1,44 @@
 import { getRouteApi, Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, type ReactNode } from "react";
-import { FileText, Pencil, X, Check, Plus, FileDown, FileSpreadsheet, Presentation, FileArchive, Loader2 } from "lucide-react";
-import { updateSubjectPage, createAssignment, downloadCourseFile } from "@/lib/actions";
+import { useState, type ReactNode, useRef } from "react";
+import {
+  FileText,
+  Pencil,
+  X,
+  Check,
+  Plus,
+  FileDown,
+  FileSpreadsheet,
+  Presentation,
+  FileArchive,
+  Loader2,
+  Trash2,
+  FolderOpen,
+  Upload,
+} from "lucide-react";
+import {
+  updateSubjectPage,
+  createAssignment,
+  downloadCourseFile,
+  uploadCourseFile,
+  deleteCourseFile,
+  updateCourseFile,
+} from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
 import { formatDateTime } from "@/lib/format";
-import type { AssignmentOverview, SubjectDetail, SubjectPageDetail, SubjectFileItem, TaskStatus } from "@/lib/types";
+import {
+  TARGET_LABEL,
+  TARGET_TYPES,
+  type AssignmentOverview,
+  type SubjectDetail,
+  type SubjectPageDetail,
+  type SubjectFileItem,
+  type TargetType,
+  type TaskStatus,
+} from "@/lib/types";
+import { toast } from "sonner";
+import { useDialog } from "@/components/dialog-provider";
 
 const subjectRoute = getRouteApi("/subjects/$slug");
 
@@ -64,9 +96,47 @@ function ContentPage({ page }: { page: SubjectPageDetail }) {
               <FileGrid files={page.files} />
             </div>
           )}
+
+          {/* Staff: manage materials directly on the page (no need to open the editor) */}
+          {staff && <MaterialsManager page={page} />}
         </>
       )}
     </article>
+  );
+}
+
+/** Collapsible materials admin visible to staff right on the page. */
+function MaterialsManager({ page }: { page: SubjectPageDetail }) {
+  const [open, setOpen] = useState(page.files.length === 0);
+
+  return (
+    <div className="mt-8 rounded-xl border border-dashed border-border">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-foreground hover:bg-accent/40"
+      >
+        <span className="flex items-center gap-2">
+          <FolderOpen className="h-4 w-4 text-subject" />
+          Spravovat materiály ({page.files.length})
+        </span>
+        <span className="text-xs font-normal text-muted-foreground">
+          {open ? "skrýt" : "přidat / upravit / smazat"}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-border p-4">
+          {page.files.length > 0 && (
+            <div className="grid gap-2">
+              {page.files.map((file) => (
+                <FileEditRow key={file.id} file={file} />
+              ))}
+            </div>
+          )}
+          <UploadFileForm pageId={page.id} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -79,10 +149,13 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  presentation: "bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 ring-orange-200/50",
+  presentation:
+    "bg-orange-50 text-orange-700 dark:bg-orange-950/30 dark:text-orange-300 ring-orange-200/50",
   manual: "bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300 ring-blue-200/50",
-  schema: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 ring-emerald-200/50",
-  template: "bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300 ring-purple-200/50",
+  schema:
+    "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 ring-emerald-200/50",
+  template:
+    "bg-purple-50 text-purple-700 dark:bg-purple-950/30 dark:text-purple-300 ring-purple-200/50",
   material: "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300 ring-slate-200/50",
 };
 
@@ -117,7 +190,8 @@ function getFileMeta(fileName: string) {
       icon: FileSpreadsheet,
       colorClass: "text-emerald-600 dark:text-emerald-400",
       bgClass: "bg-emerald-50 dark:bg-emerald-950/30",
-      borderClass: "hover:border-emerald-300 hover:shadow-emerald-500/5 dark:hover:border-emerald-800",
+      borderClass:
+        "hover:border-emerald-300 hover:shadow-emerald-500/5 dark:hover:border-emerald-800",
     };
   }
   if (ext === "zip" || ext === "rar") {
@@ -160,93 +234,84 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
       document.body.removeChild(link);
     } catch (err) {
       console.error("Chyba při stahování souboru:", err);
-      alert("Soubor se nepodařilo stáhnout.");
+      toast.error("Soubor se nepodařilo stáhnout.");
     } finally {
       setDownloading(null);
     }
   };
 
   return (
-    <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2">
+    <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2">
       {files.map((file) => {
         const meta = getFileMeta(file.fileName);
         const Icon = meta.icon;
         const isDownloading = downloading === file.id;
         const ext = file.fileName.split(".").pop()?.toUpperCase() || "FILE";
 
-        const helperText = file.description || "Doprovodné studijní materiály k lekci";
-
         return (
           <div
             key={file.id}
             onClick={() => !isDownloading && handleDownload(file.id)}
-            className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-border/80 bg-surface/50 p-5 shadow-sm transition-all duration-200 cursor-pointer hover:shadow-md hover:border-subject/40 hover:-translate-y-0.5"
+            className="group flex items-center gap-3.5 rounded-xl border border-border/80 bg-surface/50 p-3.5 shadow-sm transition-all duration-200 cursor-pointer hover:shadow-md hover:border-subject/40"
           >
-            {/* Top row with details */}
-            <div className="flex items-start gap-4">
-              {/* Prominent File Icon and Extension Badge */}
-              <div className="relative shrink-0 flex flex-col items-center">
-                <div className={`grid h-14 w-14 place-items-center rounded-xl transition-transform duration-200 group-hover:scale-105 ${meta.bgClass}`}>
-                  <Icon className={`h-7 w-7 ${meta.colorClass}`} />
-                </div>
-                {/* Visual badge below icon */}
-                <span className={`absolute -bottom-1.5 px-2 py-0.5 text-[9px] font-bold rounded-md shadow-sm border border-background text-white select-none
-                  ${ext === "PDF" ? "bg-red-500" :
-                    ext === "PPTX" || ext === "PPT" ? "bg-orange-500" :
-                    ext === "DOCX" || ext === "DOC" ? "bg-blue-500" :
-                    ext === "XLSX" || ext === "XLS" ? "bg-emerald-500" :
-                    ext === "ZIP" || ext === "RAR" ? "bg-purple-500" : "bg-slate-500"
-                  }
-                `}>
-                  {ext}
+            {/* File Icon */}
+            <div className="relative shrink-0">
+              <div
+                className={`grid h-11 w-11 place-items-center rounded-lg transition-transform duration-200 group-hover:scale-105 ${meta.bgClass}`}
+              >
+                <Icon className={`h-5 w-5 ${meta.colorClass}`} />
+              </div>
+              <span
+                className={`absolute -bottom-1 -right-1 px-1.5 py-px text-[8px] font-bold rounded shadow-sm border border-background text-white select-none ${
+                  ext === "PDF"
+                    ? "bg-red-500"
+                    : ext === "PPTX" || ext === "PPT"
+                      ? "bg-orange-500"
+                      : ext === "DOCX" || ext === "DOC"
+                        ? "bg-blue-500"
+                        : ext === "XLSX" || ext === "XLS"
+                          ? "bg-emerald-500"
+                          : ext === "ZIP" || ext === "RAR"
+                            ? "bg-purple-500"
+                            : "bg-slate-500"
+                }`}
+              >
+                {ext}
+              </span>
+            </div>
+
+            {/* Label + meta */}
+            <div className="min-w-0 flex-1">
+              <h4 className="font-display font-semibold text-sm leading-snug text-foreground group-hover:text-subject transition-colors truncate">
+                {file.label}
+              </h4>
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+                <span
+                  className={`px-1.5 py-px rounded-full font-medium ring-1 ring-border/50 ${CATEGORY_COLORS[file.category] || CATEGORY_COLORS.material}`}
+                >
+                  {CATEGORY_LABELS[file.category] || file.category}
+                </span>
+                <span className="font-mono text-muted-foreground">
+                  {formatBytes(file.fileSize)}
                 </span>
               </div>
-
-              {/* Text information */}
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ring-1 ring-border/50 ${CATEGORY_COLORS[file.category] || CATEGORY_COLORS.material}`}>
-                    {CATEGORY_LABELS[file.category] || file.category}
-                  </span>
-                  <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                    {formatBytes(file.fileSize)}
-                  </span>
-                </div>
-                <h4 className="mt-2 font-display font-bold text-base leading-snug text-foreground group-hover:text-subject transition-colors" title={file.label}>
-                  {file.label}
-                </h4>
-                <p className="mt-1 text-xs text-muted-foreground line-clamp-1" title={file.fileName}>
-                  Název souboru: {file.fileName}
-                </p>
-                <p className="mt-2 text-xs text-foreground/75 leading-normal">
-                  {helperText}
-                </p>
-              </div>
+              {file.description && (
+                <p className="mt-1 text-xs text-foreground/65 line-clamp-1">{file.description}</p>
+              )}
             </div>
 
-            {/* Bottom action row */}
-            <div className="mt-5 pt-3 border-t border-border/40 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground truncate max-w-[70%]">
-                Kliknutím stáhnete soubor
-              </span>
-              <button
-                type="button"
-                disabled={isDownloading}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-subject text-subject-foreground transition-all group-hover:brightness-105"
-              >
-                {isDownloading ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Stahuji...
-                  </>
-                ) : (
-                  <>
-                    <FileDown className="h-3.5 w-3.5" />
-                    Stáhnout
-                  </>
-                )}
-              </button>
-            </div>
+            {/* Download button */}
+            <button
+              type="button"
+              disabled={isDownloading}
+              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-subject text-subject-foreground transition-all group-hover:brightness-105"
+            >
+              {isDownloading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileDown className="h-3.5 w-3.5" />
+              )}
+            </button>
           </div>
         );
       })}
@@ -277,34 +342,274 @@ function PageEditor({ page, onDone }: { page: SubjectPageDetail; onDone: () => v
       <input
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        className="rounded-md border border-input bg-background px-3 py-2 font-display text-lg font-semibold outline-none focus:ring-2 focus:ring-ring/40"
+        className="rounded-md border border-input bg-background px-3 py-2 font-display text-lg font-semibold outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
       />
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}
         rows={14}
         placeholder={"# Nadpis\n\nOdstavec textu…\n\n## Podnadpis\n\n- odrážka\n- další odrážka"}
-        className="mono rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring/40"
+        className="mono rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
       />
       <p className="text-xs text-muted-foreground">
-        Podporuje jednoduché formátování: # nadpis, ## podnadpis, - odrážky, **tučně**.
+        Formátování: # nadpis, ## podnadpis, - odrážky, **tučně**, [odkaz](https://...),
+        ![obrázek](https://...).
       </p>
-      <div className="flex gap-2">
+
+      <div className="flex gap-2 mt-4 border-t border-border pt-4">
         <button
           onClick={save}
           disabled={busy}
           className="subject-button inline-flex items-center gap-1.5 disabled:opacity-60"
         >
-          <Check className="h-4 w-4" /> {busy ? "Ukládám…" : "Uložit"}
+          <Check className="h-4 w-4" /> {busy ? "Ukládám…" : "Uložit stránku"}
         </button>
         <button
           onClick={onDone}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm bg-surface hover:bg-muted text-foreground"
         >
           <X className="h-4 w-4" /> Zrušit
         </button>
       </div>
     </div>
+  );
+}
+
+function FileEditRow({ file }: { file: SubjectFileItem }) {
+  const router = useRouter();
+  const deleteFile = useServerFn(deleteCourseFile);
+  const updateFile = useServerFn(updateCourseFile);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [label, setLabel] = useState(file.label);
+  const [category, setCategory] = useState(file.category);
+  const [description, setDescription] = useState(file.description);
+  const [busy, setBusy] = useState(false);
+  const { confirm } = useDialog();
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await updateFile({ data: { id: file.id, label, category, description } });
+      setIsEditing(false);
+      await router.invalidate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: `Smazat soubor „${file.label}“?`,
+      message: "Soubor bude trvale smazán a nebude možné jej stáhnout.",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await deleteFile({ data: file.id });
+      toast.success(`Soubor „${file.label}“ byl smazán.`);
+      await router.invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Nepodařilo se smazat soubor.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <form
+        onSubmit={handleUpdate}
+        className="p-3 border border-border bg-muted/10 rounded-lg space-y-3"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="text-xs font-semibold text-muted-foreground">
+            Název
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              required
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none text-foreground"
+            />
+          </label>
+          <label className="text-xs font-semibold text-muted-foreground">
+            Kategorie
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none text-foreground"
+            >
+              <option value="presentation">Prezentace</option>
+              <option value="manual">Manuál</option>
+              <option value="schema">Schéma</option>
+              <option value="template">Šablona</option>
+              <option value="material">Materiál</option>
+            </select>
+          </label>
+        </div>
+        <label className="text-xs font-semibold text-muted-foreground block">
+          Popis
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Stručný popis (nepovinné)"
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none"
+          />
+        </label>
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={() => setIsEditing(false)}
+            className="px-2 py-1 rounded border border-border text-xs bg-surface text-foreground"
+          >
+            Zrušit
+          </button>
+          <button type="submit" disabled={busy} className="subject-button !px-2 !py-1 text-xs">
+            Uložit
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between p-2.5 border border-border rounded-lg bg-card text-sm">
+      <div className="min-w-0">
+        <p className="font-semibold text-foreground truncate">{file.label}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {file.fileName} · {file.category}
+        </p>
+      </div>
+      <div className="flex gap-1">
+        <button
+          type="button"
+          onClick={() => setIsEditing(true)}
+          className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+          title="Upravit"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={busy}
+          className="p-1 text-red-500 hover:text-red-700 rounded hover:bg-red-50"
+          title="Smazat"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function UploadFileForm({ pageId }: { pageId: string }) {
+  const router = useRouter();
+  const uploadFile = useServerFn(uploadCourseFile);
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [label, setLabel] = useState("");
+  const [category, setCategory] = useState("material");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && !label) {
+      const baseName = file.name.split(".").slice(0, -1).join(".") || file.name;
+      setLabel(baseName.replace(/[_-]+/g, " "));
+    }
+  };
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setError("Vyberte soubor.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+
+    try {
+      const fd = new FormData();
+      fd.set("pageId", pageId);
+      fd.set("label", label || file.name);
+      fd.set("category", category);
+      fd.set("description", description);
+      fd.set("file", file);
+
+      await uploadFile({ data: fd });
+      setLabel("");
+      setDescription("");
+      if (fileRef.current) fileRef.current.value = "";
+      await router.invalidate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Nahrání selhalo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleUpload}
+      className="p-3 border border-dashed border-border rounded-lg space-y-2.5 bg-muted/5"
+    >
+      <p className="text-xs font-semibold text-foreground">Přidat soubor</p>
+
+      <input
+        ref={fileRef}
+        type="file"
+        required
+        onChange={handleFileChange}
+        className="block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-subject file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[color:var(--subject-foreground)] text-foreground"
+      />
+
+      <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="Název"
+          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none"
+        />
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none"
+        >
+          <option value="material">Materiál</option>
+          <option value="presentation">Prezentace</option>
+          <option value="manual">Manuál</option>
+          <option value="schema">Schéma</option>
+          <option value="template">Šablona</option>
+        </select>
+      </div>
+
+      <input
+        type="text"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        placeholder="Popis (nepovinné)"
+        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none"
+      />
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+
+      <button
+        type="submit"
+        disabled={busy}
+        className="subject-button inline-flex items-center gap-1.5 !py-1.5 !px-3 text-xs disabled:opacity-60"
+      >
+        <Upload className="h-3.5 w-3.5" />
+        {busy ? "Nahrávám…" : "Nahrát"}
+      </button>
+    </form>
   );
 }
 
@@ -334,6 +639,18 @@ function MarkdownLite({ text }: { text: string }) {
     }
     flushList();
     if (!line.trim()) continue;
+    const img = /^!\[([^\]]*)\]\(([^)\s]+)\)$/.exec(line.trim());
+    if (img) {
+      blocks.push(
+        <img
+          key={key++}
+          src={img[2]}
+          alt={img[1]}
+          className="my-4 max-h-96 w-auto rounded-xl border border-border"
+        />,
+      );
+      continue;
+    }
     if (line.startsWith("## ")) {
       blocks.push(
         <h3 key={key++} className="mt-6 mb-2 font-display text-lg font-semibold">
@@ -418,16 +735,18 @@ function AssignmentsTemplate({ page }: { page: SubjectPageDetail }) {
               <Link
                 to="/subjects/$slug/assignments/$aid"
                 params={{ slug: subject.slug, aid: a.id }}
-                className="surface-card flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-5 transition-shadow hover:shadow-[var(--shadow-elevated)]"
+                className="surface-card grid items-center gap-3 p-5 transition-shadow hover:shadow-[var(--shadow-elevated)] sm:grid-cols-[minmax(0,1fr)_auto_150px]"
               >
                 <div className="min-w-0">
                   <p className="font-medium">{a.title}</p>
                   <p className="text-sm text-muted-foreground line-clamp-1">{a.description}</p>
                 </div>
-                <div className="flex shrink-0 items-center gap-3 text-sm">
+                <div className="flex items-center justify-end text-sm">
                   <AssignmentBadge a={a} staff={staff} />
-                  <span className="mono text-muted-foreground">{formatDateTime(a.dueAt)}</span>
                 </div>
+                <span className="mono text-sm text-muted-foreground sm:text-right">
+                  {formatDateTime(a.dueAt)}
+                </span>
               </Link>
             </li>
           ))}
@@ -437,6 +756,12 @@ function AssignmentsTemplate({ page }: { page: SubjectPageDetail }) {
   );
 }
 
+const TARGET_HINT: Record<TargetType, string> = {
+  INDIVIDUAL: "Každý student odevzdává a má vlastní známku.",
+  PAIR: "Odevzdává dvojice — společná známka.",
+  GROUP: "Odevzdává celá učební skupina.",
+};
+
 function CreateAssignment({ subjectId }: { subjectId: string }) {
   const router = useRouter();
   const create = useServerFn(createAssignment);
@@ -444,86 +769,197 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [targetType, setTargetType] = useState<TargetType>("PAIR");
+  const [isPublished, setIsPublished] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
     setBusy(true);
     try {
-      await create({ data: { subjectId, title, description, dueDate } });
+      await create({ data: { subjectId, title, description, dueDate, targetType, isPublished } });
       setTitle("");
       setDescription("");
       setDueDate("");
       setOpen(false);
       await router.invalidate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Vytvoření selhalo.");
     } finally {
       setBusy(false);
     }
   };
 
-  if (!open) {
-    return (
+  return (
+    <>
       <button
         onClick={() => setOpen(true)}
         className="subject-button inline-flex items-center gap-1.5"
       >
         <Plus className="h-4 w-4" /> Nový úkol
       </button>
-    );
-  }
 
-  return (
-    <form onSubmit={submit} className="surface-card w-full grid gap-3 p-5">
-      <h3 className="font-display font-semibold">Nový úkol</h3>
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Název"
-        required
-        autoFocus
-        className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-      />
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        placeholder="Zadání"
-        rows={3}
-        className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-      />
-      <input
-        type="datetime-local"
-        value={dueDate}
-        onChange={(e) => setDueDate(e.target.value)}
-        required
-        className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40"
-      />
-      <div className="flex gap-2">
-        <button disabled={busy} className="subject-button flex-1 disabled:opacity-60">
-          {busy ? "Ukládám…" : "Vytvořit"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="rounded-md border border-border px-3 py-1.5 text-sm"
-        >
-          Zrušit
-        </button>
-      </div>
-    </form>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={submit}
+            className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
+          >
+            <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
+              <h3 className="font-display text-lg font-bold text-foreground">Nový úkol</h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Zavřít"
+                className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="grid gap-4 p-6">
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Název úkolu
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Např. Návrh & program osvětlení"
+                  required
+                  autoFocus
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Zadání (co mají studenti udělat a odevzdat)
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Popište požadavky, formát odevzdání (např. ZIP se zdrojovými soubory)…"
+                  rows={4}
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Termín odevzdání
+                <input
+                  type="datetime-local"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  required
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+
+              <fieldset>
+                <legend className="text-xs font-semibold text-muted-foreground">
+                  Kdo odevzdává
+                </legend>
+                <div className="mt-1.5 grid gap-2">
+                  {TARGET_TYPES.map((t) => (
+                    <label
+                      key={t}
+                      className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                        targetType === t
+                          ? "border-subject/50 bg-subject-soft/40 ring-1 ring-subject/30"
+                          : "border-border hover:bg-accent/40"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="targetType"
+                        checked={targetType === t}
+                        onChange={() => setTargetType(t)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        <span className="block text-sm font-medium text-foreground">
+                          {TARGET_LABEL[t]}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {TARGET_HINT[t]}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={isPublished}
+                  onChange={(e) => setIsPublished(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-medium text-foreground">Zadat hned</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Studenti úkol uvidí hned. Jinak zůstane jako koncept.
+                  </span>
+                </span>
+              </label>
+
+              {error && <p className="text-xs text-red-600">{error}</p>}
+            </div>
+
+            <footer className="flex justify-end gap-3 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Storno
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="subject-button rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              >
+                {busy ? "Vytvářím…" : isPublished ? "Vytvořit a zadat" : "Vytvořit jako koncept"}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
+    </>
   );
 }
 
 function AssignmentBadge({ a, staff }: { a: AssignmentOverview; staff: boolean }) {
   if (staff) {
     return (
-      <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
-        {a.submittedCount}/{a.groupCount} odevzdáno
+      <span className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+          {TARGET_LABEL[a.targetType]}
+        </span>
+        {a.isPublished ? (
+          <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
+            {a.submittedUnits}/{a.totalUnits} odevzdáno
+          </span>
+        ) : (
+          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+            Nezadáno
+          </span>
+        )}
       </span>
     );
   }
   if (!a.myStatus) return null;
   const chip = STATUS_CHIP[a.myStatus];
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${chip.cls}`}>{chip.label}</span>
+    <span className="flex items-center gap-1.5">
+      {a.myGrade && (
+        <span className="rounded-full bg-subject-soft px-2.5 py-1 text-xs font-bold ring-1 ring-subject/30">
+          {a.myGrade}
+        </span>
+      )}
+      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${chip.cls}`}>
+        {chip.label}
+      </span>
+    </span>
   );
 }

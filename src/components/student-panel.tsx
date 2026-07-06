@@ -115,7 +115,7 @@ export function StudentPanel() {
                     {a.fileName}
                   </p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {a.groupName} · {a.uploadedByName}
+                    {a.unitName} · {a.uploadedByName}
                   </p>
                 </div>
               </li>

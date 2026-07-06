@@ -12,6 +12,16 @@ export interface SessionUser {
 
 export type TaskStatus = "overdue" | "pending" | "submitted";
 
+// Who submits an assignment: a single student, a pair, or a whole study group.
+export const TARGET_TYPES = ["INDIVIDUAL", "PAIR", "GROUP"] as const;
+export type TargetType = (typeof TARGET_TYPES)[number];
+
+export const TARGET_LABEL: Record<TargetType, string> = {
+  INDIVIDUAL: "Jednotlivec",
+  PAIR: "Dvojice",
+  GROUP: "Skupina",
+};
+
 export interface SubjectCard {
   id: string;
   name: string;
@@ -28,7 +38,7 @@ export interface ActivityItem {
   assignmentId: string;
   assignmentTitle: string;
   subjectSlug: string;
-  groupName: string;
+  unitName: string; // "Dvojice 1" / student name / "L1"
   version: number;
   fileName: string;
   uploadedByName: string;
@@ -42,7 +52,7 @@ export interface StudentTask {
   subjectSlug: string;
   dueAt: string; // ISO
   status: TaskStatus;
-  groupName: string;
+  unitName: string;
   latestVersion: number | null;
 }
 
@@ -51,9 +61,12 @@ export interface AssignmentOverview {
   title: string;
   description: string;
   dueAt: string; // ISO
-  groupCount: number;
-  submittedCount: number;
+  targetType: TargetType;
+  isPublished: boolean;
+  submittedUnits: number; // units with at least one version
+  totalUnits: number;
   myStatus: TaskStatus | null; // set for students, null for staff
+  myGrade: string | null;
 }
 
 export interface ClassWithSubjects {
@@ -63,6 +76,13 @@ export interface ClassWithSubjects {
   isArchived: boolean;
   studentCount: number;
   subjects: { id: string; name: string; slug: string; theme: SubjectTheme }[];
+  students: { id: string; name: string; email: string }[];
+}
+
+export interface ClassesData {
+  classes: ClassWithSubjects[];
+  /** students without any class — available to add */
+  withoutClass: { id: string; name: string; email: string }[];
 }
 
 export const PAGE_TEMPLATES = ["content", "assignments"] as const;
@@ -91,9 +111,85 @@ export interface SubjectPageDetail extends SubjectPageNav {
   files: SubjectFileItem[];
 }
 
+export interface AssignmentBrief {
+  id: string;
+  title: string;
+  dueAt: string; // ISO
+  status: TaskStatus;
+  targetType: TargetType;
+}
+
+/** Data for the two static panels at the top of a course (student view). */
+export interface StudentSubjectPanel {
+  current: AssignmentBrief | null; // earliest-due published assignment still missing
+  missing: AssignmentBrief[]; // all missing incl. current
+  submittedCount: number;
+  publishedCount: number;
+  recentGrades: { assignmentTitle: string; value: string }[];
+  myStudyGroup: string | null;
+  myPair: { name: string; partnerNames: string[] } | null;
+}
+
+/** Data for the two static panels at the top of a course (staff view). */
+export interface StaffSubjectPanel {
+  unpublished: { id: string; title: string; dueAt: string; targetType: TargetType }[];
+  published: {
+    id: string;
+    title: string;
+    dueAt: string;
+    submittedUnits: number;
+    totalUnits: number;
+  }[];
+}
+
+export interface AnnouncementItem {
+  id: string;
+  title: string;
+  body: string;
+  authorName: string;
+  createdAt: string; // ISO
+}
+
 export interface SubjectDetail extends SubjectCard {
   assignments: AssignmentOverview[];
   pages: SubjectPageNav[];
+  studentPanel: StudentSubjectPanel | null; // set for students
+  staffPanel: StaffSubjectPanel | null; // set for staff
+  latestAnnouncement: { id: string; title: string; createdAt: string } | null;
+  announcementCount: number;
+}
+
+/* ---------- karta žáka (Moodle "user report") ---------- */
+
+export interface StudentCardRow {
+  assignmentId: string;
+  title: string;
+  dueAt: string; // ISO
+  targetType: TargetType;
+  status: TaskStatus | "none";
+  submittedAt: string | null;
+  versions: number; // unit total
+  myUploads: number; // uploaded personally
+  onTime: boolean | null; // null = not submitted
+  grade: string | null;
+  feedback: string | null;
+}
+
+export interface StudentCardData {
+  student: { id: string; name: string; email: string; className: string | null };
+  subjectName: string;
+  subjectSlug: string;
+  studyGroup: string | null;
+  pair: { name: string; partnerNames: string[] } | null;
+  stats: {
+    submitted: number;
+    total: number;
+    avgGrade: string | null; // formatted, e.g. "1,4"
+    onTimeRate: number | null; // 0-100 %
+    totalUploads: number;
+  };
+  rows: StudentCardRow[];
+  recentUploads: { fileName: string; assignmentTitle: string; uploadedAt: string }[];
 }
 
 export interface VersionItem {
@@ -107,11 +203,18 @@ export interface VersionItem {
   note: string | null;
 }
 
-export interface GroupView {
-  id: string;
-  name: string;
+/** One submission unit of an assignment (student / pair / study group). */
+export interface UnitView {
+  key: string; // unitKey: "u:<id>" | "p:<id>" | "g:<id>"
+  name: string; // student name / "Dvojice 1 (L1)" / "L1"
+  studyGroupName: string | null;
   members: { id: string; name: string }[];
   versions: VersionItem[]; // newest first
+  submittedAt: string | null; // first version time
+  grade: string | null; // shared for PAIR/GROUP; the student's for INDIVIDUAL
+  feedback: string | null;
+  locked: boolean;
+  extension: string | null; // ISO
 }
 
 export interface AssignmentDetail {
@@ -122,9 +225,84 @@ export interface AssignmentDetail {
   subjectName: string;
   subjectSlug: string;
   theme: SubjectTheme;
+  targetType: TargetType;
+  isPublished: boolean;
   canUpload: boolean;
-  myGroupId: string | null;
-  groups: GroupView[]; // staff: all; student: only their group
+  myUnitKey: string | null;
+  units: UnitView[]; // staff: all units; student: only their own
+}
+
+/* ---------- study groups & pairs management ---------- */
+
+export interface PairView {
+  id: string;
+  name: string;
+  members: { id: string; name: string }[];
+}
+
+export interface StudyGroupView {
+  id: string;
+  name: string;
+  members: { id: string; name: string; pairName: string | null }[];
+  pairs: PairView[];
+}
+
+export interface SubjectGroupsData {
+  subjectId: string;
+  subjectName: string;
+  studyGroups: StudyGroupView[];
+  /** enrolled in the subject but not in any study group yet */
+  unassigned: { id: string; name: string }[];
+  /** students of the subject's class not enrolled in the subject */
+  notEnrolled: { id: string; name: string }[];
+}
+
+/* ---------- class overview (per course) ---------- */
+
+export interface OverviewCell {
+  status: TaskStatus | "none";
+  submittedAt: string | null;
+  versions: number;
+  myUploads: number; // versions uploaded by this student personally
+  grade: string | null;
+  feedback: string | null;
+  locked: boolean;
+  extension: string | null; // ISO
+  versionsList: VersionItem[];
+  members: { id: string; name: string }[];
+}
+
+export interface ClassOverviewData {
+  subjectName: string;
+  assignments: { id: string; title: string; dueAt: string; targetType: TargetType }[];
+  rows: {
+    studentId: string;
+    name: string;
+    studyGroup: string | null;
+    pair: string | null;
+    cells: Record<string, OverviewCell>; // by assignmentId
+  }[];
+}
+
+/* ---------- odevzdávárna (submission hub) ---------- */
+
+export interface HubItem {
+  assignmentId: string;
+  title: string;
+  dueAt: string;
+  status: TaskStatus;
+  targetType: TargetType;
+  grade: string | null;
+  subjectSlug: string;
+}
+
+export interface HubCourse {
+  subjectId: string;
+  name: string;
+  slug: string;
+  theme: SubjectTheme;
+  missing: HubItem[];
+  done: HubItem[];
 }
 
 export interface StaffDashboard {
@@ -150,9 +328,13 @@ export interface StudentPanelData {
 
 export interface AdminUserRow {
   id: string;
+  firstName: string;
+  lastName: string;
   name: string;
   email: string;
   role: Role;
+  classId: string | null;
+  className: string | null;
 }
 
 export interface AdminClassRow {
@@ -168,10 +350,4 @@ export interface AdminData {
   users: AdminUserRow[];
   classes: AdminClassRow[];
   subjects: SubjectCard[];
-}
-
-export interface StudentOption {
-  id: string;
-  name: string;
-  inGroup: boolean; // already assigned to a group in this assignment
 }

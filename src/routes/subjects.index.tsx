@@ -21,11 +21,7 @@ function SubjectsIndex() {
   return (
     <main className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
       <header className="mb-8">
-        <p className="text-sm text-muted-foreground">Vaše stránky</p>
         <h1 className="text-3xl sm:text-4xl font-semibold">Předměty</h1>
-        <p className="mt-2 text-muted-foreground max-w-2xl">
-          Každý předmět má vlastní vizuální identitu — ale stejné komponenty, navigaci a chování.
-        </p>
       </header>
 
       {subjects.length === 0 ? (
