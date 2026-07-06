@@ -18,6 +18,9 @@ import {
   Pencil,
   Trash2,
   X,
+  CheckCircle2,
+  AlertCircle,
+  FileText,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getAssignment } from "@/lib/data";
@@ -28,6 +31,7 @@ import {
   setAssignmentPublished,
   updateAssignment,
   deleteAssignment,
+  recordConsent,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -119,7 +123,12 @@ function AssignmentPage() {
         {staff && <StaffAssignmentControls assignment={assignment} />}
       </header>
 
-      {assignment.canUpload && <UploadCard assignmentId={assignment.id} />}
+      {assignment.canUpload &&
+        (assignment.requiresConsent && !assignment.myConsent ? (
+          <ConsentCard assignment={assignment} />
+        ) : (
+          <UploadCard assignmentId={assignment.id} />
+        ))}
 
       {staff ? <StaffUnits assignment={assignment} /> : <StudentView assignment={assignment} />}
     </main>
@@ -235,6 +244,11 @@ function EditAssignmentModal({
   const [targetType, setTargetType] = useState<"INDIVIDUAL" | "PAIR" | "GROUP">(
     assignment.targetType,
   );
+  const [requiresConsent, setRequiresConsent] = useState(assignment.requiresConsent);
+  const [consentText, setConsentText] = useState(
+    assignment.consentText ||
+      "Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím.",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -250,6 +264,8 @@ function EditAssignmentModal({
           description,
           dueDate: new Date(dueDate).toISOString(),
           targetType,
+          requiresConsent,
+          consentText: requiresConsent ? consentText : "",
         },
       });
       await router.invalidate();
@@ -322,6 +338,37 @@ function EditAssignmentModal({
             </label>
           </div>
 
+          <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
+            <input
+              type="checkbox"
+              checked={requiresConsent}
+              onChange={(e) => setRequiresConsent(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block font-medium text-foreground">
+                Vyžadovat digitální potvrzení studenta
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Student bude muset před odevzdáním potvrdit seznámení se s kritérii.
+              </span>
+            </span>
+          </label>
+
+          {requiresConsent && (
+            <label className="block text-xs font-semibold text-muted-foreground animate-in fade-in duration-200">
+              Text potvrzení / prohlášení
+              <textarea
+                value={consentText}
+                onChange={(e) => setConsentText(e.target.value)}
+                placeholder="Např. Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím..."
+                rows={3}
+                required
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 resize-none animate-none"
+              />
+            </label>
+          )}
+
           {error && <p className="text-xs text-red-600">{error}</p>}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-border mt-6">
@@ -343,6 +390,104 @@ function EditAssignmentModal({
         </form>
       </div>
     </div>
+  );
+}
+
+function ConsentCard({ assignment }: { assignment: AssignmentDetail }) {
+  const router = useRouter();
+  const record = useServerFn(recordConsent);
+  const [variant, setVariant] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!agreed) {
+      setError("Musíte potvrdit souhlas se zněním prohlášení.");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await record({
+        data: {
+          assignmentId: assignment.id,
+          variant: variant || null,
+        },
+      });
+      toast.success("Souhlas byl úspěšně udělen.");
+      await router.invalidate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Odeslání souhlasu selhalo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="surface-card mt-6 p-6 border border-amber-200 bg-amber-50/10 dark:bg-amber-950/5 animate-in fade-in duration-300"
+    >
+      <div className="flex items-start gap-3">
+        <div className="rounded-lg bg-amber-100 dark:bg-amber-900/50 p-2 text-amber-600 dark:text-amber-400">
+          <AlertCircle className="h-5 w-5" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="font-display font-semibold text-lg text-foreground">
+            Vyžadováno digitální potvrzení studenta
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Tento úkol vyžaduje seznámení se s kritérii a udělení souhlasu před odevzdáním prací.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 p-4 rounded-xl bg-surface border border-border text-sm leading-relaxed text-foreground whitespace-pre-wrap font-medium shadow-inner">
+        {assignment.consentText ||
+          "Souhlasím s podmínkami zadání a kritérii hodnocení tohoto úkolu."}
+      </div>
+
+      <div className="mt-4 space-y-4">
+        <label className="block text-xs font-semibold text-muted-foreground max-w-md">
+          Varianta / Téma projektu (pokud je vyžadováno)
+          <input
+            type="text"
+            value={variant}
+            onChange={(e) => setVariant(e.target.value)}
+            placeholder="Např. Varianta A / Téma: Chytrý dům"
+            className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+          />
+        </label>
+
+        <label className="flex items-start gap-2.5 text-sm cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+            className="mt-1"
+          />
+          <span className="text-foreground font-medium">
+            Prohlašuji, že jsem se plně seznámil se zadáním, požadavky a kritérii hodnocení a
+            vyjadřuji s nimi svůj souhlas.
+          </span>
+        </label>
+
+        {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
+
+        <div className="pt-2">
+          <button
+            type="submit"
+            disabled={busy}
+            className="subject-button inline-flex items-center justify-center gap-1.5 disabled:opacity-60 font-semibold"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            {busy ? "Odesílám..." : "Udělit digitální souhlas a odemknout odevzdávání"}
+          </button>
+        </div>
+      </div>
+    </form>
   );
 }
 
@@ -432,6 +577,33 @@ function StudentView({ assignment }: { assignment: AssignmentDetail }) {
 
   return (
     <section className="mt-8 space-y-5">
+      {assignment.requiresConsent && assignment.myConsent && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-emerald-800 text-sm flex items-start gap-2.5 shadow-sm">
+          <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600" />
+          <div className="flex-1">
+            <p className="font-semibold">Digitální souhlas byl udělen</p>
+            <p className="text-xs text-emerald-700 mt-0.5">
+              Dne {formatDateTime(assignment.myConsent.acceptedAt)} jste potvrdili seznámení se s
+              kritérii.
+              {assignment.myConsent.variant && (
+                <>
+                  {" "}
+                  Zvolená varianta/téma: <strong>{assignment.myConsent.variant}</strong>
+                </>
+              )}
+            </p>
+            <details className="mt-2 text-xs text-emerald-950/70 border-t border-emerald-200/50 pt-2 cursor-pointer">
+              <summary className="font-medium hover:underline">
+                Zobrazit znění, se kterým jste souhlasili
+              </summary>
+              <p className="mt-1 whitespace-pre-wrap pl-3 border-l-2 border-emerald-300 italic">
+                {assignment.myConsent.acceptedText}
+              </p>
+            </details>
+          </div>
+        </div>
+      )}
+
       {unit.locked && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 text-sm flex items-start gap-2.5 shadow-sm">
           <Lock className="h-5 w-5 shrink-0 mt-0.5 text-red-600" />
@@ -714,6 +886,62 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
           }}
         />
       )}
+
+      {assignment.requiresConsent && (
+        <div className="surface-card p-5 mt-6 space-y-4">
+          <h3 className="font-display font-semibold text-base text-foreground flex items-center gap-2">
+            <FileText className="h-5 w-5 text-subject" />
+            Evidence digitálních souhlasů (PRD §5B)
+          </h3>
+          {!assignment.consents || assignment.consents.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">
+              Dosud nebyl udělen žádný souhlas.
+            </p>
+          ) : (
+            <div className="overflow-x-auto border border-border rounded-xl">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-muted/50 border-b border-border text-muted-foreground uppercase font-bold tracking-wider">
+                  <tr>
+                    <th className="px-4 py-2">Student</th>
+                    <th className="px-4 py-2">Datum a čas</th>
+                    <th className="px-4 py-2">Zvolená varianta</th>
+                    <th className="px-4 py-2">Text odsouhlaseného znění</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border text-foreground">
+                  {assignment.consents.map((c) => (
+                    <tr key={c.userId} className="hover:bg-accent/20">
+                      <td className="px-4 py-2.5 font-semibold">{c.userName}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {formatDateTime(c.acceptedAt)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {c.variant ? (
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                            {c.variant}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground italic">— bez varianty —</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 max-w-xs md:max-w-md">
+                        <details className="cursor-pointer text-[11px] text-muted-foreground">
+                          <summary className="hover:underline select-none">
+                            Zobrazit znění ({c.acceptedText.slice(0, 30)}...)
+                          </summary>
+                          <p className="mt-1 whitespace-pre-wrap p-2 bg-muted/40 rounded border border-border/50 text-[10px] font-mono leading-normal">
+                            {c.acceptedText}
+                          </p>
+                        </details>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -737,6 +965,10 @@ function UnitRow({
     counts.set(v.uploadedById, (counts.get(v.uploadedById) ?? 0) + 1);
   }
 
+  const memberConsented = (userId: string) => {
+    return !!assignment.consents?.some((c) => c.userId === userId);
+  };
+
   return (
     <>
       <tr
@@ -745,7 +977,7 @@ function UnitRow({
       >
         {/* Unit + members */}
         <td className="px-4 py-2.5 align-top">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {unit.versions.length > 0 && (
               <ChevronRight
                 className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
@@ -766,6 +998,17 @@ function UnitRow({
                 unit.name
               )}
             </span>
+            {assignment.requiresConsent &&
+              unit.members.length === 1 &&
+              (memberConsented(unit.members[0].id) ? (
+                <span className="inline-flex items-center text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full px-1.5 py-0.5 font-bold">
+                  ✓ souhlas
+                </span>
+              ) : (
+                <span className="inline-flex items-center text-[10px] bg-red-50 text-red-700 border border-red-200 rounded-full px-1.5 py-0.5 font-bold">
+                  ✗ bez souhlasu
+                </span>
+              ))}
             {unit.studyGroupName && unit.studyGroupName !== unit.name && (
               <span className="text-xs text-muted-foreground">· {unit.studyGroupName}</span>
             )}
@@ -780,20 +1023,36 @@ function UnitRow({
             )}
           </div>
           {unit.members.length > 1 && (
-            <div className="mt-1 flex flex-wrap gap-1 pl-5">
+            <div className="mt-1.5 flex flex-wrap gap-1 pl-5">
               {unit.members.map((m) => {
                 const c = counts.get(m.id) ?? 0;
+                const hasConsented = memberConsented(m.id);
                 return (
                   <Link
                     key={m.id}
                     to="/subjects/$slug/students/$sid"
                     params={{ slug, sid: m.id }}
                     onClick={(e) => e.stopPropagation()}
-                    title={`${m.name}: ${c}× nahráno — otevřít kartu žáka`}
+                    title={`${m.name}: ${c}× nahráno — otevřít kartu žáka${
+                      assignment.requiresConsent
+                        ? hasConsented
+                          ? " (souhlas udělen)"
+                          : " (souhlas chybí!)"
+                        : ""
+                    }`}
                     className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs hover:ring-1 hover:ring-subject/50 ${
                       c > 0 ? "bg-subject-soft" : "bg-muted text-muted-foreground"
+                    } ${
+                      assignment.requiresConsent
+                        ? hasConsented
+                          ? "border border-emerald-200 bg-emerald-50/50 text-emerald-800"
+                          : "border border-red-200 bg-red-50/50 text-red-800"
+                        : ""
                     }`}
                   >
+                    {assignment.requiresConsent && (
+                      <span className="font-bold">{hasConsented ? "✓ " : "✗ "}</span>
+                    )}
                     {m.name}
                     <span className={`font-semibold ${c === 0 ? "opacity-60" : "text-subject"}`}>
                       ×{c}

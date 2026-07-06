@@ -104,7 +104,13 @@ export const uploadSubmission = createServerFn({ method: "POST" })
 
     const assignment = await db.assignment.findUnique({
       where: { id: data.assignmentId },
-      select: { id: true, subjectId: true, targetType: true, isPublished: true },
+      select: {
+        id: true,
+        subjectId: true,
+        targetType: true,
+        isPublished: true,
+        requiresConsent: true,
+      },
     });
     if (!assignment) throw new Error("Úkol nenalezen.");
     if (!assignment.isPublished && !isStaff(user.role)) {
@@ -115,6 +121,20 @@ export const uploadSubmission = createServerFn({ method: "POST" })
       where: { userId_subjectId: { userId: user.id, subjectId: assignment.subjectId } },
     });
     if (!enrolled && !isStaff(user.role)) throw new Error("Nejste zapsáni v tomto kurzu.");
+
+    if (assignment.requiresConsent && !isStaff(user.role)) {
+      const consent = await db.assignmentConsent.findUnique({
+        where: {
+          assignmentId_userId: {
+            assignmentId: assignment.id,
+            userId: user.id,
+          },
+        },
+      });
+      if (!consent) {
+        throw new Error("Před odevzdáním musíte udělit souhlas s podmínkami zadání.");
+      }
+    }
 
     const target = (
       assignment.targetType === "PAIR" || assignment.targetType === "GROUP"
@@ -507,6 +527,8 @@ export const createAssignment = createServerFn({ method: "POST" })
         dueDate: z.string().min(1), // ISO from <input type=datetime-local>
         targetType: z.enum(["INDIVIDUAL", "PAIR", "GROUP"]),
         isPublished: z.boolean().default(false),
+        requiresConsent: z.boolean().default(false),
+        consentText: z.string().default(""),
       })
       .parse(d),
   )
@@ -520,6 +542,8 @@ export const createAssignment = createServerFn({ method: "POST" })
         dueDate: new Date(data.dueDate),
         targetType: data.targetType,
         isPublished: data.isPublished,
+        requiresConsent: data.requiresConsent,
+        consentText: data.consentText,
       },
     });
     return { id: created.id };
@@ -537,6 +561,50 @@ export const setAssignmentPublished = createServerFn({ method: "POST" })
       data: { isPublished: data.isPublished },
     });
     return { ok: true };
+  });
+
+export const recordConsent = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        assignmentId: z.string().min(1),
+        variant: z.string().nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser();
+
+    const assignment = await db.assignment.findUnique({
+      where: { id: data.assignmentId },
+      select: { id: true, requiresConsent: true, consentText: true, isPublished: true },
+    });
+    if (!assignment) throw new Error("Úkol nenalezen.");
+    if (!assignment.isPublished) throw new Error("Úkol zatím není zadaný.");
+    if (!assignment.requiresConsent) throw new Error("Tento úkol nevyžaduje souhlas.");
+
+    const existing = await db.assignmentConsent.findUnique({
+      where: {
+        assignmentId_userId: {
+          assignmentId: data.assignmentId,
+          userId: user.id,
+        },
+      },
+    });
+    if (existing) {
+      throw new Error("Souhlas pro tento úkol jste již udělili.");
+    }
+
+    const consent = await db.assignmentConsent.create({
+      data: {
+        assignmentId: data.assignmentId,
+        userId: user.id,
+        acceptedText: assignment.consentText || "Souhlasím se zadáním úkolu.",
+        variant: data.variant || null,
+      },
+    });
+
+    return { ok: true, id: consent.id };
   });
 
 // --- study groups & pairs ---
@@ -854,6 +922,8 @@ export const updateAssignment = createServerFn({ method: "POST" })
         dueDate: z.string().optional(),
         targetType: z.enum(["INDIVIDUAL", "PAIR", "GROUP"]).optional(),
         isPublished: z.boolean().optional(),
+        requiresConsent: z.boolean().optional(),
+        consentText: z.string().optional(),
       })
       .parse(d),
   )
@@ -865,12 +935,16 @@ export const updateAssignment = createServerFn({ method: "POST" })
       dueDate?: Date;
       targetType?: string;
       isPublished?: boolean;
+      requiresConsent?: boolean;
+      consentText?: string;
     } = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.dueDate !== undefined) updateData.dueDate = new Date(data.dueDate);
     if (data.targetType !== undefined) updateData.targetType = data.targetType;
     if (data.isPublished !== undefined) updateData.isPublished = data.isPublished;
+    if (data.requiresConsent !== undefined) updateData.requiresConsent = data.requiresConsent;
+    if (data.consentText !== undefined) updateData.consentText = data.consentText;
 
     await db.assignment.update({
       where: { id: data.id },

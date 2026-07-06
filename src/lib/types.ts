@@ -230,6 +230,14 @@ export interface UnitView {
   extension: string | null; // ISO
 }
 
+export interface AssignmentConsentView {
+  userId: string;
+  userName: string;
+  acceptedText: string;
+  variant: string | null;
+  acceptedAt: string; // ISO string
+}
+
 export interface AssignmentDetail {
   id: string;
   title: string;
@@ -243,6 +251,14 @@ export interface AssignmentDetail {
   canUpload: boolean;
   myUnitKey: string | null;
   units: UnitView[]; // staff: all units; student: only their own
+  requiresConsent: boolean;
+  consentText: string;
+  myConsent: {
+    acceptedText: string;
+    variant: string | null;
+    acceptedAt: string; // ISO string
+  } | null;
+  consents?: AssignmentConsentView[];
 }
 
 /* ---------- study groups & pairs management ---------- */

@@ -808,6 +808,10 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
   const [dueDate, setDueDate] = useState("");
   const [targetType, setTargetType] = useState<TargetType>("PAIR");
   const [isPublished, setIsPublished] = useState(true);
+  const [requiresConsent, setRequiresConsent] = useState(false);
+  const [consentText, setConsentText] = useState(
+    "Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím.",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -816,10 +820,23 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
     setError(null);
     setBusy(true);
     try {
-      await create({ data: { subjectId, title, description, dueDate, targetType, isPublished } });
+      await create({
+        data: {
+          subjectId,
+          title,
+          description,
+          dueDate,
+          targetType,
+          isPublished,
+          requiresConsent,
+          consentText: requiresConsent ? consentText : "",
+        },
+      });
       setTitle("");
       setDescription("");
       setDueDate("");
+      setRequiresConsent(false);
+      setConsentText("Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím.");
       setOpen(false);
       await router.invalidate();
     } catch (err) {
@@ -924,6 +941,37 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
                   ))}
                 </div>
               </fieldset>
+
+              <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={requiresConsent}
+                  onChange={(e) => setRequiresConsent(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Vyžadovat digitální potvrzení studenta
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    Student bude muset před odevzdáním potvrdit seznámení se s kritérii.
+                  </span>
+                </span>
+              </label>
+
+              {requiresConsent && (
+                <label className="block text-xs font-semibold text-muted-foreground animate-in fade-in duration-200">
+                  Text potvrzení / prohlášení
+                  <textarea
+                    value={consentText}
+                    onChange={(e) => setConsentText(e.target.value)}
+                    placeholder="Např. Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím..."
+                    rows={3}
+                    required
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                  />
+                </label>
+              )}
 
               <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
                 <input

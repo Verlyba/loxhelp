@@ -625,14 +625,36 @@ export const getAssignment = createServerFn({ method: "GET" })
     const targetType = asTarget(assignment.targetType);
     const subjectId = assignment.subject.id;
 
-    const [subs, grades] = await Promise.all([
+    const [subs, grades, myConsent, consents] = await Promise.all([
       db.submission.findMany({
         where: { assignmentId: id },
         orderBy: { version: "desc" },
         include: { uploadedBy: { select: { firstName: true, lastName: true } } },
       }),
       db.grade.findMany({ where: { assignmentId: id } }),
+      staff
+        ? null
+        : db.assignmentConsent.findUnique({
+            where: { assignmentId_userId: { assignmentId: id, userId: user.id } },
+          }),
+      staff
+        ? db.assignmentConsent.findMany({
+            where: { assignmentId: id },
+            include: { user: { select: { firstName: true, lastName: true } } },
+            orderBy: { acceptedAt: "desc" },
+          })
+        : [],
     ]);
+
+    const consentsMapped = staff
+      ? consents.map((c) => ({
+          userId: c.userId,
+          userName: fullName(c.user),
+          acceptedText: c.acceptedText,
+          variant: c.variant,
+          acceptedAt: c.acceptedAt.toISOString(),
+        }))
+      : undefined;
     const subsByUnit = new Map<string, SubmissionRow[]>();
     for (const s of subs) {
       const list = subsByUnit.get(s.unitKey) ?? [];
@@ -771,6 +793,16 @@ export const getAssignment = createServerFn({ method: "GET" })
         !units.find((u) => u.key === myUnitKey)?.locked,
       myUnitKey,
       units,
+      requiresConsent: assignment.requiresConsent,
+      consentText: assignment.consentText,
+      myConsent: myConsent
+        ? {
+            acceptedText: myConsent.acceptedText,
+            variant: myConsent.variant,
+            acceptedAt: myConsent.acceptedAt.toISOString(),
+          }
+        : null,
+      consents: consentsMapped,
     };
   });
 
