@@ -34,11 +34,13 @@
       u nezveřejněných (staff je na stránce vidí). Nové uploady jsou default published (schema default true).
     - Pozn.: úkoly (Assignment.isPublished) i testy budou mít stejný pattern; testy zatím neexistují.
 
-[ ] Evidence souhlasu studenta (§5B).
-    Server: recordConsent (uloží AssignmentConsent s frozen textem + variantou, timestamp).
-    Gate: pokud assignment.requiresConsent a student nemá souhlas → nelze odevzdat, ukáže se souhlasový
-    dialog. Učitel v detailu úkolu vidí seznam udělených souhlasů (kdo/kdy/varianta). Nastavení
-    requiresConsent+consentText v create/edit úkolu.
+[x] Evidence souhlasu studenta (§5B).
+    Hotovo (iterace 4, commit bc927cf):
+    - Server: akce `recordConsent` ukládá `AssignmentConsent` se zmrazeným zněním textu a vybranou variantou.
+    - Gate: v `uploadSubmission` je backendová kontrola bránící odevzdání bez souhlasu.
+    - UI úkolu (Create/Edit): přidány přepínače a textarea pro text souhlasu v obou modalech.
+    - UI studenta: pokud souhlas chybí, odevzdávání se skryje a zobrazí se `ConsentCard` (s možností zadat variantu a odeslat souhlas). Po udělení se odemkne nahrávání a ukáže se zelený info banner.
+    - UI učitele: u každého člena jednotky (včetně dvojic/skupin) svítí ✓/✗ indikátor souhlasu a dole na stránce je tabulka „Evidence digitálních souhlasů“ pro právní krytí.
 
 [ ] Modul Testy – Správa testů (§2).
     Schema: Test(subjectId, title, isPublished, timeLimit?), Question(testId, text, type), Option,
