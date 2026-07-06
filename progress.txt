@@ -1,1 +1,52 @@
-[NA RADE] Analyza databazoveho schematu a navrh relaci podle PRD.md.
+# Ralph Loop – checklist implementace LMS (dle PRD.md)
+# Pravidlo: vždy JEDEN nejvyšší nezaškrtnutý úkol. Po dokončení: tsc+eslint, commit, [x] + poznámka.
+
+[x] Analýza databázového schématu a návrh relací podle PRD.md.
+    Poznámka (iterace 1, commit 92602d4):
+    - Stávající schéma pokrývá: User/Class/Subject/SubjectPage/SubjectFile/Enrollment/
+      StudyGroup+Member/Pair+Member/Assignment/Submission(unit-keyed)/Grade(+lock+extension)/Announcement.
+    - Chybějící dle PRD doplněno: model AuditLog (§5C), model AssignmentConsent (§5B),
+      SubjectFile.isPublished (§5A draft/published materiálů), Assignment.requiresConsent + consentText.
+    - db push + generate hotovo, tsc/eslint čisté.
+    - Zároveň dokončen jednotný dialogový systém (§4): DialogProvider (confirm/prompt) + sonner toasty,
+      všechny nativní confirm/alert/prompt nahrazeny.
+    - POZOR pro příště: DB se spravuje přes `bunx prisma db push` (ne migrate – v neinteraktivním
+      shellu selže). Migrace v prisma/migrations/ jsou z rané fáze a NEodpovídají aktuálnímu schématu –
+      před produkcí bude potřeba `migrate diff` reconcile. Data v dev.db jsou reálná → NIKDY migrate reset.
+
+[ ] AuditLog – zapojení (§5C).
+    Transakčně logovat každou změnu známky/zámku/prodloužení v updateSubmissionState
+    (action, entityId=`${assignmentId}:${userId}`, old/new, targetName). Helper writeAudit(tx, …).
+    UI: sekce "Historie hodnocení" na kartě žáka + v GradingModalu. RBAC: jen staff.
+
+[ ] Draft/published materiálů (§5A).
+    Server: toggle isPublished na SubjectFile (staff), getSubjectPage vrací studentům jen published.
+    UI: přepínač koncept/zveřejněno v MaterialsManager + odznak u materiálu. Student koncept nevidí.
+
+[ ] Evidence souhlasu studenta (§5B).
+    Server: recordConsent (uloží AssignmentConsent s frozen textem + variantou, timestamp).
+    Gate: pokud assignment.requiresConsent a student nemá souhlas → nelze odevzdat, ukáže se souhlasový
+    dialog. Učitel v detailu úkolu vidí seznam udělených souhlasů (kdo/kdy/varianta). Nastavení
+    requiresConsent+consentText v create/edit úkolu.
+
+[ ] Modul Testy – Správa testů (§2).
+    Schema: Test(subjectId, title, isPublished, timeLimit?), Question(testId, text, type), Option,
+    Attempt(testId, userId, startedAt, submittedAt, score), Answer. CRUD + RBAC, draft/published,
+    spuštění studentem, auto-hodnocení výběrových otázek + ruční u otevřených. Dedikovaná stránka.
+
+[ ] Import studentů z matrik CSV/XLSX (§5D).
+    Rozšířit stávající hromadný import o parser Bakaláři/ŠkolaOnLine exportu; celý zápis v transakci
+    (selže jeden → nepropíše se nic). Náhled před importem + report chyb.
+
+[ ] Transakce pro zbývající hromadné operace (§5D).
+    generatePairsInGroupCore a createPair obalit do db.$transaction.
+
+[ ] Dedikované karty s prokliky (§3, §4).
+    Karta třídy (/classes/$id) a karta skupiny – detailní přehled + klikatelné vazby
+    (z karty žáka → třída/skupina, z třídy → žáci/předměty). Vizualizace propojení.
+
+[ ] Mobilní optimalizace studentských pohledů (§4).
+    Audit responzivity: kurz, detail úkolu, odevzdávárna, známky, karty. Studenti = primárně mobil.
+
+[ ] SpeedGrader-lite – inline náhled souborů (roadmapa).
+    Náhled PDF/obrázku/textu přímo v GradingModalu (blob URL), ať učitel nemusí stahovat.
