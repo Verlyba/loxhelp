@@ -16,6 +16,7 @@ function toSessionUser(u: {
   firstName: string;
   lastName: string;
   role: string;
+  classId: string | null;
 }): SessionUser {
   return {
     id: u.id,
@@ -23,6 +24,7 @@ function toSessionUser(u: {
     firstName: u.firstName,
     lastName: u.lastName,
     role: isRole(u.role) ? u.role : "STUDENT",
+    classId: u.classId,
   };
 }
 

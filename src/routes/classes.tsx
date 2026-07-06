@@ -11,6 +11,10 @@ import {
   UserPlus,
   Check,
   X,
+  ClipboardPaste,
+  Bell,
+  FileText,
+  Upload,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getClasses } from "@/lib/data";
@@ -20,10 +24,17 @@ import {
   deleteClass,
   setClassArchived,
   setStudentClass,
+  createUser,
+  updateSubject,
+  sendClassNotification,
+  deleteClassNotification,
 } from "@/lib/actions";
-import type { ClassesData, ClassWithSubjects } from "@/lib/types";
+import { useUser } from "@/lib/use-user";
+import type { ClassesData, ClassWithSubjects, SubjectCard } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { PageShell } from "@/components/page-shell";
+import { PasswordReveal } from "@/components/password-reveal";
 
 export const Route = createFileRoute("/classes")({
   beforeLoad: ({ context }) => {
@@ -42,71 +53,78 @@ const inputCls =
 function ClassesPage() {
   const data = Route.useLoaderData() as ClassesData;
   const [showArchived, setShowArchived] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const list = data.classes.filter((c) => c.isArchived === showArchived);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-semibold">Třídy</h1>
-        </div>
-        <div className="inline-flex rounded-md border border-border bg-surface p-1 text-sm">
+    <PageShell
+      eyebrow="Organizace"
+      title="Třídy"
+      subtitle="Správa tříd, studentů a předmětů — žáky přidáváte přímo v seznamu třídy."
+      actions={
+        <>
           <button
-            onClick={() => setShowArchived(false)}
-            className={`rounded px-3 py-1.5 ${!showArchived ? "bg-foreground text-background" : "text-muted-foreground"}`}
+            onClick={() => setShowImport(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3.5 py-2 text-sm hover:bg-accent cursor-pointer"
           >
-            Aktivní
+            <ClipboardPaste className="h-4 w-4 text-subject" /> Hromadný import
           </button>
-          <button
-            onClick={() => setShowArchived(true)}
-            className={`inline-flex items-center gap-1 rounded px-3 py-1.5 ${showArchived ? "bg-foreground text-background" : "text-muted-foreground"}`}
-          >
-            <Archive className="h-3.5 w-3.5" /> Archiv
-          </button>
-        </div>
-      </header>
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+          <div className="inline-flex rounded-md border border-border bg-surface p-1 text-sm">
+            <button
+              onClick={() => setShowArchived(false)}
+              className={`rounded px-3 py-1.5 cursor-pointer ${!showArchived ? "bg-foreground text-background" : "text-muted-foreground"}`}
+            >
+              Aktivní
+            </button>
+            <button
+              onClick={() => setShowArchived(true)}
+              className={`inline-flex items-center gap-1 rounded px-3 py-1.5 cursor-pointer ${showArchived ? "bg-foreground text-background" : "text-muted-foreground"}`}
+            >
+              <Archive className="h-3.5 w-3.5" /> Archiv
+            </button>
+          </div>
+        </>
+      }
+    >
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="grid content-start gap-4">
           {list.length === 0 ? (
             <p className="text-muted-foreground">
               {showArchived ? "Žádné archivované třídy." : "Žádné aktivní třídy."}
             </p>
           ) : (
-            list.map((c) => <ClassCard key={c.id} cls={c} withoutClass={data.withoutClass} />)
+            list.map((c) => (
+              <ClassCard
+                key={c.id}
+                cls={c}
+                withoutClass={data.withoutClass}
+                allSubjects={data.allSubjects}
+              />
+            ))
           )}
         </div>
 
         <div className="space-y-4">
           <CreateClass />
-          {data.withoutClass.length > 0 && (
-            <div className="surface-card p-5">
-              <h3 className="font-display text-sm font-semibold">
-                Studenti bez třídy ({data.withoutClass.length})
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Přidáte je tlačítkem + u konkrétní třídy.
-              </p>
-              <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                {data.withoutClass.map((s) => (
-                  <li key={s.id}>{s.name}</li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       </div>
-    </main>
+
+      {showImport && (
+        <ImportStudentsModal classes={data.classes} onClose={() => setShowImport(false)} />
+      )}
+    </PageShell>
   );
 }
 
 function ClassCard({
   cls,
   withoutClass,
+  allSubjects,
 }: {
   cls: ClassWithSubjects;
   withoutClass: ClassesData["withoutClass"];
+  allSubjects: SubjectCard[];
 }) {
   const router = useRouter();
   const archiveFn = useServerFn(setClassArchived);
@@ -188,7 +206,7 @@ function ClassCard({
                 onClick={saveEdit}
                 disabled={busy}
                 aria-label="Uložit"
-                className="rounded-md bg-primary p-1.5 text-primary-foreground disabled:opacity-60"
+                className="rounded-md bg-primary p-1.5 text-primary-foreground disabled:opacity-60 cursor-pointer"
               >
                 <Check className="h-4 w-4" />
               </button>
@@ -199,7 +217,7 @@ function ClassCard({
                   setSchoolYear(cls.schoolYear);
                 }}
                 aria-label="Zrušit"
-                className="rounded-md border border-border p-1.5 text-muted-foreground hover:bg-accent"
+                className="rounded-md border border-border p-1.5 text-muted-foreground hover:bg-accent cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -217,7 +235,7 @@ function ClassCard({
                 onClick={() => setEditing(true)}
                 title="Upravit název a rok"
                 aria-label="Upravit třídu"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
               >
                 <Pencil className="h-3.5 w-3.5" />
               </button>
@@ -226,7 +244,7 @@ function ClassCard({
                   onClick={() => run(() => archiveFn({ data: { id: cls.id, isArchived: false } }))}
                   title="Obnovit z archivu"
                   aria-label="Obnovit"
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
                 </button>
@@ -235,7 +253,7 @@ function ClassCard({
                   onClick={() => run(() => archiveFn({ data: { id: cls.id, isArchived: true } }))}
                   title="Archivovat (konec školního roku)"
                   aria-label="Archivovat"
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
                 >
                   <Archive className="h-3.5 w-3.5" />
                 </button>
@@ -244,7 +262,7 @@ function ClassCard({
                 onClick={handleDelete}
                 title="Smazat třídu"
                 aria-label="Smazat třídu"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 cursor-pointer"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -253,7 +271,7 @@ function ClassCard({
         </div>
 
         {/* Subjects */}
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-3 flex flex-wrap gap-1.5 items-center">
           {cls.subjects.map((s) => (
             <Link
               key={s.id}
@@ -270,10 +288,16 @@ function ClassCard({
           )}
         </div>
 
+        {/* Assign Subject Form */}
+        <ClassSubjectsAssign cls={cls} allSubjects={allSubjects} />
+
+        {/* Broadcast notifications */}
+        <ClassNotificationsSection cls={cls} />
+
         {/* Students */}
         <button
           onClick={() => setShowStudents((v) => !v)}
-          className="mt-4 text-sm font-medium text-subject underline underline-offset-2 hover:opacity-80"
+          className="mt-4 text-sm font-medium text-subject underline underline-offset-2 hover:opacity-80 cursor-pointer"
         >
           {showStudents ? "Skrýt studenty" : `Studenti (${cls.studentCount})`}
         </button>
@@ -304,7 +328,14 @@ function ClassCard({
                     className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-muted/10 transition-colors"
                   >
                     <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                      <span className="font-semibold text-foreground truncate">{s.name}</span>
+                      <Link
+                        to="/students/$sid"
+                        params={{ sid: s.id }}
+                        title="Otevřít kartu žáka"
+                        className="font-semibold text-foreground truncate hover:text-subject hover:underline"
+                      >
+                        {s.name}
+                      </Link>
                       <span className="text-xs text-muted-foreground mr-1">({s.email})</span>
 
                       {cls.subjects.length > 0 && (
@@ -329,7 +360,7 @@ function ClassCard({
                       disabled={busy}
                       title="Vyřadit ze třídy"
                       aria-label={`Vyřadit ${s.name}`}
-                      className="rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-60 transition-colors"
+                      className="rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-60 transition-colors cursor-pointer"
                     >
                       <UserMinus className="h-3.5 w-3.5" />
                     </button>
@@ -369,7 +400,7 @@ function ClassCard({
                           run(() => assignFn({ data: { userId: s.id, classId: cls.id } }))
                         }
                         disabled={busy}
-                        className="rounded-full bg-surface px-2.5 py-1 text-xs ring-1 ring-border hover:bg-accent disabled:opacity-60 transition-colors"
+                        className="rounded-full bg-surface px-2.5 py-1 text-xs ring-1 ring-border hover:bg-accent disabled:opacity-60 transition-colors cursor-pointer"
                       >
                         + {s.name}
                       </button>
@@ -378,9 +409,200 @@ function ClassCard({
                 )}
               </div>
             )}
+
+            {/* Create a brand-new student right here in the class list */}
+            <NewStudentInline classId={cls.id} className={cls.name} />
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ClassSubjectsAssign({
+  cls,
+  allSubjects,
+}: {
+  cls: ClassWithSubjects;
+  allSubjects: SubjectCard[];
+}) {
+  const router = useRouter();
+  const updateSub = useServerFn(updateSubject);
+  const [subjectId, setSubjectId] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Filter subjects that are not already in this class
+  const assignable = allSubjects.filter((s) => s.classId !== cls.id);
+
+  const handleAssign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subjectId) return;
+    setBusy(true);
+    try {
+      const sub = allSubjects.find((s) => s.id === subjectId);
+      if (!sub) return;
+      await updateSub({
+        data: {
+          id: sub.id,
+          name: sub.name,
+          description: sub.description,
+          themeStyle: sub.theme as "loxone" | "cad3d" | "default",
+          classId: cls.id,
+        },
+      });
+      setSubjectId("");
+      await router.invalidate();
+      toast.success(`Předmět „${sub.name}“ byl přepsán do třídy ${cls.name}.`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Nepodařilo se přiřadit předmět.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (assignable.length === 0) return null;
+
+  return (
+    <form
+      onSubmit={handleAssign}
+      className="mt-3 flex items-center gap-2 border-t border-border pt-3"
+    >
+      <select
+        value={subjectId}
+        onChange={(e) => setSubjectId(e.target.value)}
+        className={`${inputCls} !py-1 text-xs max-w-[180px]`}
+        required
+      >
+        <option value="">Zapsat předmět...</option>
+        {assignable.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name} ({s.className})
+          </option>
+        ))}
+      </select>
+      <button
+        disabled={busy}
+        type="submit"
+        className="rounded bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
+      >
+        Zapsat
+      </button>
+    </form>
+  );
+}
+
+function ClassNotificationsSection({ cls }: { cls: ClassWithSubjects }) {
+  const router = useRouter();
+  const sendNotif = useServerFn(sendClassNotification);
+  const deleteNotif = useServerFn(deleteClassNotification);
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { confirm } = useDialog();
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setBusy(true);
+    try {
+      await sendNotif({ data: { classId: cls.id, title, body } });
+      setTitle("");
+      setBody("");
+      setShowForm(false);
+      await router.invalidate();
+      toast.success("Oznámení třídě odesláno.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Chyba při odesílání.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string, notifTitle: string) => {
+    const ok = await confirm({
+      title: "Smazat oznámení?",
+      message: `Smazat oznámení „${notifTitle}“ pro celou třídu?`,
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteNotif({ data: id });
+      await router.invalidate();
+      toast.success("Oznámení smazáno.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Chyba při mazání.");
+    }
+  };
+
+  return (
+    <div className="mt-4 border-t border-border pt-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold flex items-center gap-1.5 text-foreground">
+          <Bell className="h-4 w-4 text-subject" /> Oznámení třídy ({cls.notifications.length})
+        </h4>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="text-xs text-subject font-medium hover:underline cursor-pointer"
+        >
+          {showForm ? "Zavřít" : "Nové oznámení"}
+        </button>
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={handleSend}
+          className="mt-3 grid gap-2.5 rounded-lg bg-muted/20 p-3 border border-border"
+        >
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Předmět oznámení"
+            required
+            className={`${inputCls} !py-1 text-xs w-full`}
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Text oznámení (nepovinné)"
+            rows={2}
+            className={`${inputCls} !py-1 text-xs w-full resize-none`}
+          />
+          <button
+            disabled={busy}
+            type="submit"
+            className="justify-self-end rounded bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
+          >
+            Odeslat třídě
+          </button>
+        </form>
+      )}
+
+      {cls.notifications.length > 0 && (
+        <ul className="mt-2 space-y-2 max-h-40 overflow-y-auto divide-y divide-border/60">
+          {cls.notifications.map((n) => (
+            <li
+              key={n.id}
+              className="pt-2 first:pt-0 flex items-start justify-between gap-2 text-xs"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-foreground truncate">{n.title}</p>
+                {n.body && <p className="text-muted-foreground line-clamp-2 mt-0.5">{n.body}</p>}
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  {n.authorName} · {new Date(n.createdAt).toLocaleDateString("cs-CZ")}
+                </p>
+              </div>
+              <button
+                onClick={() => handleDelete(n.id, n.title)}
+                title="Smazat oznámení"
+                className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors shrink-0 cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -400,6 +622,9 @@ function CreateClass() {
       setName("");
       setSchoolYear("");
       await router.invalidate();
+      toast.success("Třída byla vytvořena.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Nepodařilo se vytvořit třídu.");
     } finally {
       setBusy(false);
     }
@@ -407,8 +632,8 @@ function CreateClass() {
 
   return (
     <form onSubmit={submit} className="surface-card grid gap-3 p-5">
-      <h2 className="flex items-center gap-2 font-display font-semibold">
-        <Plus className="h-4 w-4 text-subject" /> Nová třída
+      <h2 className="flex items-center gap-2 font-display font-semibold text-foreground">
+        <Plus className="h-4.5 w-4.5 text-subject" /> Nová třída
       </h2>
       <input
         value={name}
@@ -426,10 +651,316 @@ function CreateClass() {
       />
       <button
         disabled={busy}
-        className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+        className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
       >
         {busy ? "Ukládám…" : "Vytvořit třídu"}
       </button>
     </form>
+  );
+}
+
+/**
+ * Creates a brand-new student directly inside the class's student list.
+ * No password entry — the server generates one and it is shown exactly once.
+ */
+function NewStudentInline({ classId, className }: { classId: string; className: string }) {
+  const router = useRouter();
+  const create = useServerFn(createUser);
+  const [open, setOpen] = useState(false);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reveal, setReveal] = useState<{ name: string; password: string } | null>(null);
+
+  const autoEmail = () =>
+    `${firstName}.${lastName}`
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z.]/g, "") + "@school.cz";
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const res = await create({
+        data: {
+          firstName,
+          lastName,
+          email: email.trim() || autoEmail(),
+          role: "STUDENT",
+          classId,
+        },
+      });
+      await router.invalidate();
+      if (res.generatedPassword) {
+        setReveal({ name: `${firstName} ${lastName}`, password: res.generatedPassword });
+      } else {
+        toast.success(`Žák ${firstName} ${lastName} přidán do ${className}.`);
+      }
+      setFirstName("");
+      setLastName("");
+      setEmail("");
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Nepodařilo se vytvořit účet.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border px-3 py-2.5">
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-subject hover:underline cursor-pointer"
+        >
+          <UserPlus className="h-3.5 w-3.5" /> Nový žák do třídy {className}
+        </button>
+      ) : (
+        <form onSubmit={submit} className="grid gap-2">
+          <p className="text-xs font-semibold text-muted-foreground">
+            Nový žák — heslo se vygeneruje automaticky a jednou zobrazí.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="Jméno"
+              required
+              autoFocus
+              className={`${inputCls} !py-1.5 text-xs`}
+            />
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              placeholder="Příjmení"
+              required
+              className={`${inputCls} !py-1.5 text-xs`}
+            />
+          </div>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={
+              firstName && lastName ? `Email (výchozí: ${autoEmail()})` : "Email (nepovinné)"
+            }
+            className={`${inputCls} !py-1.5 text-xs`}
+          />
+          <div className="flex gap-1.5">
+            <button
+              disabled={busy}
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
+            >
+              {busy ? "Vytvářím…" : "Vytvořit žáka"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent cursor-pointer"
+            >
+              Zrušit
+            </button>
+          </div>
+        </form>
+      )}
+
+      {reveal && (
+        <PasswordReveal
+          name={reveal.name}
+          password={reveal.password}
+          onClose={() => setReveal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]">
+        <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
+          <h3 className="font-display text-lg font-bold">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Zavřít"
+            className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+        <div className="p-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function ImportStudentsModal({
+  classes,
+  onClose,
+}: {
+  classes: ClassesData["classes"];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const create = useServerFn(createUser);
+  const active = classes.filter((c) => !c.isArchived);
+  const [text, setText] = useState("");
+  const [classId, setClassId] = useState<string | null>(active[0]?.id ?? null);
+  const [password, setPassword] = useState("heslo123");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setText((event.target?.result as string) || "");
+      toast.success(`Soubor ${file.name} načten.`);
+    };
+    reader.readAsText(file);
+  };
+
+  const parse = (line: string) => {
+    const [namePart, emailPart] = line.split(/[;,\t]/).map((s) => s?.trim());
+    if (!namePart) return null;
+    const words = namePart.split(/\s+/);
+    if (words.length < 2) return null;
+    const firstName = words.slice(0, -1).join(" ");
+    const lastName = words[words.length - 1];
+    const email =
+      emailPart && emailPart.includes("@")
+        ? emailPart
+        : `${firstName}.${lastName}`
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[̀-ͯ]/g, "")
+            .replace(/[^a-z.]/g, "") + "@school.cz";
+    return { firstName, lastName, email };
+  };
+
+  const rows = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map(parse);
+  const valid = rows.filter((r): r is NonNullable<typeof r> => r !== null);
+
+  const run = async () => {
+    setBusy(true);
+    let ok = 0;
+    const errors: string[] = [];
+    for (const r of valid) {
+      try {
+        await create({ data: { ...r, role: "STUDENT", password, classId } });
+        ok++;
+      } catch (err) {
+        errors.push(`${r.email}: ${err instanceof Error ? err.message : "chyba"}`);
+      }
+    }
+    await router.invalidate();
+    setResult(
+      `Vytvořeno ${ok}/${valid.length} účtů.${errors.length ? `\nChyby:\n${errors.join("\n")}` : ""}`,
+    );
+    setBusy(false);
+  };
+
+  return (
+    <Modal title="Hromadný import studentů" onClose={onClose}>
+      {result ? (
+        <div className="grid gap-4">
+          <p className="whitespace-pre-wrap rounded-lg bg-muted/60 p-3 text-sm">{result}</p>
+          <button
+            onClick={onClose}
+            className="justify-self-end rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground cursor-pointer"
+          >
+            Hotovo
+          </button>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border bg-muted/20 p-4 text-center">
+            <Upload className="h-8 w-8 text-muted-foreground mx-auto mb-1" />
+            <p className="text-xs text-muted-foreground">
+              Vyberte soubor `.csv` nebo `.txt` se seznamem studentů
+            </p>
+            <label className="inline-flex items-center justify-center rounded-md bg-surface border border-border px-3 py-1.5 text-xs font-medium cursor-pointer hover:bg-accent self-center">
+              <span>Vybrat soubor</span>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleFileChange}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          <div className="relative">
+            <div className="absolute top-2 right-2 text-[10px] text-muted-foreground bg-surface/80 px-1 rounded border border-border">
+              Obsah schránky / souboru
+            </div>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={5}
+              placeholder={"Nebo vložte text ručně:\nJan Novotný; jan.novotny@school.cz\nEva Malá"}
+              className={`${inputCls} mono w-full leading-relaxed text-xs`}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs font-semibold text-muted-foreground">
+              Zařadit do třídy
+              <select
+                value={classId ?? ""}
+                onChange={(e) => setClassId(e.target.value || null)}
+                className={`${inputCls} mt-1 w-full`}
+              >
+                <option value="">Bez třídy</option>
+                {active.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.schoolYear})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-muted-foreground">
+              Výchozí heslo
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className={`${inputCls} mt-1 w-full`}
+              />
+            </label>
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-border pt-4">
+            <span className="text-xs text-muted-foreground">
+              Rozpoznáno: {valid.length} studentů
+            </span>
+            <button
+              onClick={run}
+              disabled={busy || valid.length === 0}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
+            >
+              {busy ? "Vytvářím…" : `Vytvořit ${valid.length} účtů`}
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

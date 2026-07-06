@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, BookOpen, FileUp, Users, Inbox, Clock } from "lucide-react";
+import { ArrowRight, BookOpen, FileUp, Users, Inbox, Clock, Bell } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getDashboard } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
+import { PageShell } from "@/components/page-shell";
 import type { DashboardData, SubjectCard } from "@/lib/types";
 
 export const Route = createFileRoute("/")({
@@ -23,20 +24,18 @@ function Dashboard() {
 
 function StaffDashboard({ data }: { data: Extract<DashboardData, { kind: "staff" }> }) {
   return (
-    <main className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
-      <div className="flex flex-wrap items-end justify-between gap-4 mb-8">
-        <div>
-          <p className="text-sm text-muted-foreground">Vítejte zpět</p>
-          <h1 className="text-3xl sm:text-4xl font-semibold">Dnešní přehled</h1>
-        </div>
+    <PageShell
+      eyebrow="Vítejte zpět"
+      title="Dnešní přehled"
+      actions={
         <Link
           to="/subjects"
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90"
         >
           Otevřít předměty <ArrowRight className="h-4 w-4" />
         </Link>
-      </div>
-
+      }
+    >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-10">
         <Stat icon={BookOpen} label="Předměty" value={data.stats.subjects} />
         <Stat icon={Users} label="Aktivní třídy" value={data.stats.activeClasses} />
@@ -82,19 +81,14 @@ function StaffDashboard({ data }: { data: Extract<DashboardData, { kind: "staff"
           )}
         </div>
       </section>
-    </main>
+    </PageShell>
   );
 }
 
 function StudentDashboard({ data }: { data: Extract<DashboardData, { kind: "student" }> }) {
   const next = data.tasks.filter((t) => t.status !== "submitted").slice(0, 3);
   return (
-    <main className="mx-auto max-w-5xl px-4 sm:px-6 py-8">
-      <div className="mb-8">
-        <p className="text-sm text-muted-foreground">Vítejte zpět</p>
-        <h1 className="text-3xl sm:text-4xl font-semibold">Moje studium</h1>
-      </div>
-
+    <PageShell eyebrow="Vítejte zpět" title="Moje studium">
       {next.length > 0 && (
         <div className="surface-card mb-8 p-6">
           <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold">
@@ -121,14 +115,34 @@ function StudentDashboard({ data }: { data: Extract<DashboardData, { kind: "stud
           </ul>
         </div>
       )}
-
+      {data.classNotifications && data.classNotifications.length > 0 && (
+        <div className="surface-card mb-8 p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Bell className="h-5 w-5 text-subject animate-pulse" /> Důležitá oznámení třídy
+          </h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {data.classNotifications.map((n) => (
+              <div key={n.id} className="rounded-xl border border-border bg-muted/10 p-4">
+                <h3 className="font-semibold text-foreground truncate">{n.title}</h3>
+                {n.body && (
+                  <p className="mt-1 text-sm text-muted-foreground line-clamp-3">{n.body}</p>
+                )}
+                <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground border-t border-border/40 pt-2">
+                  <span>Autor: {n.authorName}</span>
+                  <span>{new Date(n.createdAt).toLocaleDateString("cs-CZ")}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <h2 className="mb-4 text-lg font-semibold">Moje předměty</h2>
       <div className="grid gap-4 sm:grid-cols-2">
         {data.subjects.map((s) => (
           <SubjectTile key={s.id} subject={s} />
         ))}
       </div>
-    </main>
+    </PageShell>
   );
 }
 

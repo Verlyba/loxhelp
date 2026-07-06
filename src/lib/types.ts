@@ -8,6 +8,7 @@ export interface SessionUser {
   firstName: string;
   lastName: string;
   role: Role;
+  classId: string | null;
 }
 
 export type TaskStatus = "overdue" | "pending" | "submitted";
@@ -32,6 +33,7 @@ export interface SubjectCard {
   schoolYear: string;
   assignmentCount: number;
   studentCount: number;
+  classId?: string;
 }
 
 export interface ActivityItem {
@@ -77,12 +79,20 @@ export interface ClassWithSubjects {
   studentCount: number;
   subjects: { id: string; name: string; slug: string; theme: SubjectTheme }[];
   students: { id: string; name: string; email: string }[];
+  notifications: {
+    id: string;
+    title: string;
+    body: string;
+    createdAt: string;
+    authorName: string;
+  }[];
 }
 
 export interface ClassesData {
   classes: ClassWithSubjects[];
   /** students without any class — available to add */
   withoutClass: { id: string; name: string; email: string }[];
+  allSubjects: SubjectCard[];
 }
 
 export const PAGE_TEMPLATES = ["content", "assignments"] as const;
@@ -170,6 +180,35 @@ export interface AuditEntryView {
   oldValue: string | null;
   newValue: string | null;
   createdAt: string; // ISO
+}
+
+/* ---------- globální karta žáka (napříč kurzy) ---------- */
+
+export interface StudentProfileData {
+  student: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    name: string;
+    email: string;
+    classId: string | null;
+    className: string | null;
+    createdAt: string; // ISO
+  };
+  subjects: {
+    id: string;
+    name: string;
+    slug: string;
+    theme: SubjectTheme;
+    studyGroup: string | null;
+    pair: string | null;
+  }[];
+  stats: {
+    totalUploads: number;
+    gradedCount: number;
+    avgGrade: string | null;
+  };
+  classes: { id: string; name: string; schoolYear: string; isArchived: boolean }[];
 }
 
 /* ---------- karta žáka (Moodle "user report") ---------- */
@@ -356,6 +395,13 @@ export interface StudentDashboard {
   subjects: SubjectCard[];
   tasks: StudentTask[];
   recent: ActivityItem[];
+  classNotifications: {
+    id: string;
+    title: string;
+    body: string;
+    createdAt: string;
+    authorName: string;
+  }[];
 }
 
 export type DashboardData = StaffDashboard | StudentDashboard;
@@ -389,4 +435,5 @@ export interface AdminData {
   users: AdminUserRow[];
   classes: AdminClassRow[];
   subjects: SubjectCard[];
+  auditLogs: AuditEntryView[];
 }

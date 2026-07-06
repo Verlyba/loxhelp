@@ -3,13 +3,14 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { isRole } from "@/lib/roles";
 import { verifyPassword } from "@/lib/password";
-import { createSession, destroySession, getSessionUser, type SessionUser } from "@/lib/session";
+import type { SessionUser } from "@/lib/types";
 
 export type { SessionUser };
 
 /** Returns the signed-in user (or null). Used to hydrate router context. */
 export const getCurrentUser = createServerFn({ method: "GET" }).handler(
   async (): Promise<SessionUser | null> => {
+    const { getSessionUser } = await import("@/lib/session");
     return getSessionUser();
   },
 );
@@ -26,6 +27,7 @@ export const login = createServerFn({ method: "POST" })
     if (!user || !verifyPassword(data.password, user.passwordHash)) {
       throw new Error("Neplatný email nebo heslo.");
     }
+    const { createSession } = await import("@/lib/session");
     await createSession(user.id);
     return {
       id: user.id,
@@ -33,10 +35,12 @@ export const login = createServerFn({ method: "POST" })
       firstName: user.firstName,
       lastName: user.lastName,
       role: isRole(user.role) ? user.role : "STUDENT",
+      classId: user.classId,
     };
   });
 
 export const logout = createServerFn({ method: "POST" }).handler(async () => {
+  const { destroySession } = await import("@/lib/session");
   await destroySession();
   return { ok: true };
 });

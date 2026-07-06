@@ -4,34 +4,26 @@ import { useState } from "react";
 import {
   Plus,
   UserPlus,
-  BookPlus,
   Pencil,
   Trash2,
   KeyRound,
   Search,
-  Users,
   X,
-  ClipboardPaste,
-  ExternalLink,
-  BarChart3,
-  Users2,
+  History,
+  ShieldAlert,
+  Users,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getAdminData } from "@/lib/data";
-import {
-  createUser,
-  updateUser,
-  deleteUser,
-  setUserPassword,
-  createSubject,
-  updateSubject,
-  deleteSubject,
-} from "@/lib/actions";
+import { createUser, updateUser, deleteUser, setUserPassword } from "@/lib/actions";
 import { ROLES, roleLabel, type Role } from "@/lib/roles";
 import { useUser } from "@/lib/use-user";
-import type { AdminData, AdminUserRow, SubjectCard } from "@/lib/types";
+import type { AdminData, AdminUserRow } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { PageShell } from "@/components/page-shell";
+import { PasswordReveal } from "@/components/password-reveal";
+import { formatDateTime } from "@/lib/format";
 
 export const Route = createFileRoute("/admin")({
   beforeLoad: ({ context }) => {
@@ -51,28 +43,29 @@ function AdminPage() {
   const data = Route.useLoaderData() as AdminData;
 
   return (
-    <main className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
-      <header className="mb-6">
-        <p className="text-sm text-muted-foreground">Administrace</p>
-        <h1 className="text-3xl sm:text-4xl font-semibold">Správa</h1>
-      </header>
-
+    <PageShell
+      eyebrow="Administrace"
+      title="Správa"
+      subtitle="Uživatelé, přehled a auditní stopa. Kliknutím na žáka otevřete jeho kartu."
+      wide
+    >
       {/* Quick stats strip */}
       <div className="mb-8 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Uživatelů" value={data.users.length} />
-        <StatCard label="Předmětů" value={data.subjects.length} />
-        <StatCard label="Tříd" value={data.classes.length} />
+        <StatCard label="Celkem uživatelů" value={data.users.length} />
+        <StatCard label="Celkem předmětů" value={data.subjects.length} />
+        <StatCard label="Celkem tříd" value={data.classes.length} />
       </div>
 
-      <div className="grid gap-8 xl:grid-cols-[3fr_2fr]">
-        <UsersSection users={data.users} classes={data.classes} />
+      <div className="grid gap-8 xl:grid-cols-[5fr_4fr]">
+        <div className="space-y-8">
+          <UsersSection users={data.users} classes={data.classes} />
+        </div>
 
         <div className="space-y-8">
-          <SubjectsSection subjects={data.subjects} classes={data.classes} />
-          <ClassesSummary classes={data.classes} />
+          <AuditLogSection logs={data.auditLogs} />
         </div>
       </div>
-    </main>
+    </PageShell>
   );
 }
 
@@ -101,7 +94,6 @@ function UsersSection({
   const resetPw = useServerFn(setUserPassword);
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<AdminUserRow | null>(null);
-  const [showImport, setShowImport] = useState(false);
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -109,7 +101,8 @@ function UsersSection({
         (u) =>
           u.name.toLowerCase().includes(q) ||
           u.email.toLowerCase().includes(q) ||
-          (u.className ?? "").toLowerCase().includes(q),
+          (u.className ?? "").toLowerCase().includes(q) ||
+          u.role.toLowerCase().includes(q),
       )
     : users;
 
@@ -138,7 +131,7 @@ function UsersSection({
     });
     if (!pw) return;
     if (pw.length < 4) {
-      toast.error("Heslo musí mít alespoň 4 znaky.");
+      toast.error("Heslo must mít alespoň 4 znaky.");
       return;
     }
     await resetPw({ data: { id: u.id, password: pw } });
@@ -148,25 +141,17 @@ function UsersSection({
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 font-display text-xl font-semibold">
+        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
           <Users className="h-5 w-5 text-subject" /> Uživatelé ({users.length})
         </h2>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Hledat jméno, email, třídu…"
-              className={`${inputCls} !py-1.5 pl-8 w-56`}
-            />
-          </div>
-          <button
-            onClick={() => setShowImport(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm hover:bg-accent"
-          >
-            <ClipboardPaste className="h-4 w-4" /> Import
-          </button>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Hledat jméno, email, roli…"
+            className={`${inputCls} !py-1.5 pl-8 w-56`}
+          />
         </div>
       </div>
 
@@ -184,7 +169,20 @@ function UsersSection({
           <tbody className="divide-y divide-border">
             {filtered.map((u) => (
               <tr key={u.id} className="transition-colors hover:bg-accent/40">
-                <td className="px-4 py-2 font-medium">{u.name}</td>
+                <td className="px-4 py-2 font-medium">
+                  {u.role === "STUDENT" ? (
+                    <Link
+                      to="/students/$sid"
+                      params={{ sid: u.id }}
+                      title="Otevřít kartu žáka"
+                      className="hover:text-subject hover:underline"
+                    >
+                      {u.name}
+                    </Link>
+                  ) : (
+                    u.name
+                  )}
+                </td>
                 <td className="px-4 py-2 text-muted-foreground">{u.email}</td>
                 <td className="px-4 py-2">
                   <span
@@ -231,7 +229,6 @@ function UsersSection({
       {editing && (
         <EditUserModal user={editing} classes={classes} onClose={() => setEditing(null)} />
       )}
-      {showImport && <ImportStudentsModal classes={classes} onClose={() => setShowImport(false)} />}
     </section>
   );
 }
@@ -253,7 +250,7 @@ function IconBtn({
       title={title}
       aria-label={title}
       onClick={onClick}
-      className={`rounded-md p-1.5 transition-colors ${
+      className={`rounded-md p-1.5 transition-colors cursor-pointer ${
         danger
           ? "text-muted-foreground hover:bg-red-50 hover:text-red-600"
           : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -282,7 +279,7 @@ function Modal({
             type="button"
             onClick={onClose}
             aria-label="Zavřít"
-            className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -319,8 +316,15 @@ function EditUserModal({
     setError(null);
     setBusy(true);
     try {
-      await update({ data: { id: user.id, ...form } });
+      await update({
+        data: {
+          id: user.id,
+          ...form,
+          classId: form.role === "STUDENT" ? form.classId : null,
+        },
+      });
       await router.invalidate();
+      toast.success("Údaje uživatele uloženy.");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Uložení selhalo.");
@@ -402,148 +406,19 @@ function EditUserModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
           >
             Storno
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
           >
             {busy ? "Ukládám…" : "Uložit změny"}
           </button>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-/** Bulk import: one student per line — "Jméno Příjmení; email" or "Jméno Příjmení". */
-function ImportStudentsModal({
-  classes,
-  onClose,
-}: {
-  classes: AdminData["classes"];
-  onClose: () => void;
-}) {
-  const router = useRouter();
-  const create = useServerFn(createUser);
-  const active = classes.filter((c) => !c.isArchived);
-  const [text, setText] = useState("");
-  const [classId, setClassId] = useState<string | null>(active[0]?.id ?? null);
-  const [password, setPassword] = useState("heslo123");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-
-  const parse = (line: string) => {
-    const [namePart, emailPart] = line.split(/[;,\t]/).map((s) => s?.trim());
-    if (!namePart) return null;
-    const words = namePart.split(/\s+/);
-    if (words.length < 2) return null;
-    const firstName = words.slice(0, -1).join(" ");
-    const lastName = words[words.length - 1];
-    const email =
-      emailPart && emailPart.includes("@")
-        ? emailPart
-        : `${firstName}.${lastName}`
-            .toLowerCase()
-            .normalize("NFD")
-            .replace(/[̀-ͯ]/g, "")
-            .replace(/[^a-z.]/g, "") + "@school.cz";
-    return { firstName, lastName, email };
-  };
-
-  const rows = text
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map(parse);
-  const valid = rows.filter((r): r is NonNullable<typeof r> => r !== null);
-
-  const run = async () => {
-    setBusy(true);
-    let ok = 0;
-    const errors: string[] = [];
-    for (const r of valid) {
-      try {
-        await create({ data: { ...r, role: "STUDENT", password, classId } });
-        ok++;
-      } catch (err) {
-        errors.push(`${r.email}: ${err instanceof Error ? err.message : "chyba"}`);
-      }
-    }
-    await router.invalidate();
-    setResult(
-      `Vytvořeno ${ok}/${valid.length} účtů.${errors.length ? `\nChyby:\n${errors.join("\n")}` : ""}`,
-    );
-    setBusy(false);
-  };
-
-  return (
-    <Modal title="Hromadný import studentů" onClose={onClose}>
-      {result ? (
-        <div className="grid gap-4">
-          <p className="whitespace-pre-wrap rounded-lg bg-muted/60 p-3 text-sm">{result}</p>
-          <button
-            onClick={onClose}
-            className="justify-self-end rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
-          >
-            Hotovo
-          </button>
-        </div>
-      ) : (
-        <div className="grid gap-3">
-          <p className="text-xs text-muted-foreground">
-            Každý student na jeden řádek: <span className="mono">Jméno Příjmení; email</span>. Bez
-            emailu se vygeneruje <span className="mono">jmeno.prijmeni@school.cz</span>.
-          </p>
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={8}
-            placeholder={"Jan Novotný; jan.novotny@school.cz\nEva Malá"}
-            className={`${inputCls} mono w-full leading-relaxed`}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block text-xs font-semibold text-muted-foreground">
-              Zařadit do třídy
-              <select
-                value={classId ?? ""}
-                onChange={(e) => setClassId(e.target.value || null)}
-                className={`${inputCls} mt-1 w-full`}
-              >
-                <option value="">Bez třídy</option>
-                {active.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.schoolYear})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs font-semibold text-muted-foreground">
-              Výchozí heslo
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className={`${inputCls} mt-1 w-full`}
-              />
-            </label>
-          </div>
-          <div className="mt-2 flex items-center justify-between border-t border-border pt-4">
-            <span className="text-xs text-muted-foreground">
-              Rozpoznáno: {valid.length} studentů
-            </span>
-            <button
-              onClick={run}
-              disabled={busy || valid.length === 0}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-            >
-              {busy ? "Vytvářím…" : `Vytvořit ${valid.length} účtů`}
-            </button>
-          </div>
-        </div>
-      )}
     </Modal>
   );
 }
@@ -557,20 +432,31 @@ function CreateUser({ classes }: { classes: AdminData["classes"] }) {
     lastName: "",
     email: "",
     role: "STUDENT" as Role,
-    password: "heslo123",
-    classId: null as string | null,
+    classId: "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reveal, setReveal] = useState<{ name: string; password: string } | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      await create({ data: form });
+      const res = await create({
+        data: {
+          ...form,
+          classId: form.role === "STUDENT" && form.classId ? form.classId : null,
+        },
+      });
+      const name = `${form.firstName} ${form.lastName}`;
       setForm({ ...form, firstName: "", lastName: "", email: "" });
       await router.invalidate();
+      if (res.generatedPassword) {
+        setReveal({ name, password: res.generatedPassword });
+      } else {
+        toast.success(`Uživatel ${name} vytvořen.`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Nepodařilo se vytvořit účet.");
     } finally {
@@ -580,9 +466,12 @@ function CreateUser({ classes }: { classes: AdminData["classes"] }) {
 
   return (
     <form onSubmit={submit} className="surface-card mt-4 grid gap-3 p-5">
-      <h3 className="flex items-center gap-2 font-display font-semibold">
-        <UserPlus className="h-4 w-4 text-subject" /> Nový uživatel
+      <h3 className="flex items-center gap-2 font-display font-semibold text-foreground">
+        <UserPlus className="h-4.5 w-4.5 text-subject" /> Nový uživatel
       </h3>
+      <p className="text-xs text-muted-foreground">
+        Heslo se vygeneruje automaticky a po vytvoření jednou zobrazí.
+      </p>
       <div className="grid grid-cols-2 gap-3">
         <input
           value={form.firstName}
@@ -619,327 +508,142 @@ function CreateUser({ classes }: { classes: AdminData["classes"] }) {
             </option>
           ))}
         </select>
-        <input
-          value={form.password}
-          onChange={(e) => setForm({ ...form, password: e.target.value })}
-          placeholder="Heslo"
-          required
-          className={inputCls}
-        />
+        {form.role === "STUDENT" ? (
+          <select
+            value={form.classId}
+            onChange={(e) => setForm({ ...form, classId: e.target.value })}
+            className={inputCls}
+            required
+          >
+            <option value="">Vyberte třídu</option>
+            {activeClasses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} ({c.schoolYear})
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span />
+        )}
       </div>
-      {form.role === "STUDENT" && (
-        <select
-          value={form.classId ?? ""}
-          onChange={(e) => setForm({ ...form, classId: e.target.value || null })}
-          className={inputCls}
-        >
-          <option value="">Bez třídy</option>
-          {activeClasses.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} ({c.schoolYear})
-            </option>
-          ))}
-        </select>
-      )}
       {error && <p className="text-sm text-red-600">{error}</p>}
       <button
         disabled={busy}
-        className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
+        className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60 cursor-pointer"
       >
         {busy ? "Ukládám…" : "Vytvořit účet"}
       </button>
-    </form>
-  );
-}
 
-/* ================= subjects ================= */
-
-function SubjectsSection({
-  subjects,
-  classes,
-}: {
-  subjects: SubjectCard[];
-  classes: AdminData["classes"];
-}) {
-  const router = useRouter();
-  const del = useServerFn(deleteSubject);
-  const [editing, setEditing] = useState<SubjectCard | null>(null);
-  const { confirm } = useDialog();
-
-  const handleDelete = async (s: SubjectCard) => {
-    const ok = await confirm({
-      title: `Smazat předmět „${s.name}“?`,
-      message: "Smažou se všechny jeho stránky, úkoly, odevzdání i známky. Akce je nevratná.",
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      await del({ data: s.id });
-      toast.success(`Předmět „${s.name}“ byl smazán.`);
-      await router.invalidate();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Nepodařilo se smazat předmět.");
-    }
-  };
-
-  return (
-    <section>
-      <h2 className="mb-4 flex items-center gap-2 font-display text-xl font-semibold">
-        <BookPlus className="h-5 w-5 text-subject" /> Předměty ({subjects.length})
-      </h2>
-      <ul className="grid gap-3">
-        {subjects.map((s) => (
-          <li key={s.id} data-subject-theme={s.theme} className="surface-card p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <Link
-                  to="/subjects/$slug"
-                  params={{ slug: s.slug }}
-                  className="font-medium hover:underline"
-                >
-                  {s.name}
-                </Link>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {s.className} · {s.schoolYear} · {s.studentCount} studentů · {s.assignmentCount}{" "}
-                  úkolů
-                </p>
-              </div>
-              <span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-subject" />
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs">
-              <Link
-                to="/subjects/$slug"
-                params={{ slug: s.slug }}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-accent"
-              >
-                <ExternalLink className="h-3 w-3" /> Otevřít
-              </Link>
-              <Link
-                to="/subjects/$slug/groups"
-                params={{ slug: s.slug }}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-accent"
-              >
-                <Users2 className="h-3 w-3" /> Skupiny
-              </Link>
-              <Link
-                to="/subjects/$slug/overview"
-                params={{ slug: s.slug }}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 hover:bg-accent"
-              >
-                <BarChart3 className="h-3 w-3" /> Přehled
-              </Link>
-              <span className="flex-1" />
-              <IconBtn title="Upravit předmět" onClick={() => setEditing(s)}>
-                <Pencil className="h-3.5 w-3.5" />
-              </IconBtn>
-              <IconBtn title="Smazat předmět" danger onClick={() => handleDelete(s)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </IconBtn>
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      <CreateSubject classes={classes} />
-
-      {editing && <EditSubjectModal subject={editing} onClose={() => setEditing(null)} />}
-    </section>
-  );
-}
-
-function EditSubjectModal({ subject, onClose }: { subject: SubjectCard; onClose: () => void }) {
-  const router = useRouter();
-  const update = useServerFn(updateSubject);
-  const [form, setForm] = useState({
-    name: subject.name,
-    description: subject.description,
-    themeStyle: subject.theme as "loxone" | "cad3d" | "default",
-  });
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await update({ data: { id: subject.id, ...form } });
-      await router.invalidate();
-      onClose();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={`Upravit: ${subject.name}`} onClose={onClose}>
-      <form onSubmit={submit} className="grid gap-3">
-        <label className="block text-xs font-semibold text-muted-foreground">
-          Název
-          <input
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            required
-            className={`${inputCls} mt-1 w-full`}
-          />
-        </label>
-        <label className="block text-xs font-semibold text-muted-foreground">
-          Popis
-          <textarea
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            rows={3}
-            className={`${inputCls} mt-1 w-full resize-none`}
-          />
-        </label>
-        <label className="block text-xs font-semibold text-muted-foreground">
-          Motiv
-          <select
-            value={form.themeStyle}
-            onChange={(e) =>
-              setForm({ ...form, themeStyle: e.target.value as typeof form.themeStyle })
-            }
-            className={`${inputCls} mt-1 w-full`}
-          >
-            <option value="default">Neutrální</option>
-            <option value="loxone">Loxone (zelená)</option>
-            <option value="cad3d">3D CAD (modrá)</option>
-          </select>
-        </label>
-        <div className="mt-3 flex justify-end gap-3 border-t border-border pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            Storno
-          </button>
-          <button
-            type="submit"
-            disabled={busy}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
-          >
-            {busy ? "Ukládám…" : "Uložit"}
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
-function CreateSubject({ classes }: { classes: AdminData["classes"] }) {
-  const router = useRouter();
-  const create = useServerFn(createSubject);
-  const active = classes.filter((c) => !c.isArchived);
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    themeStyle: "default" as "loxone" | "cad3d" | "default",
-    classId: active[0]?.id ?? "",
-  });
-  const [busy, setBusy] = useState(false);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.classId) return;
-    setBusy(true);
-    try {
-      await create({ data: form });
-      setForm({ ...form, name: "", description: "" });
-      await router.invalidate();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="surface-card mt-4 grid gap-3 p-5">
-      <h3 className="flex items-center gap-2 font-display font-semibold">
-        <BookPlus className="h-4 w-4 text-subject" /> Nový předmět
-      </h3>
-      {active.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nejdřív vytvořte třídu na stránce Třídy.</p>
-      ) : (
-        <>
-          <input
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Název předmětu"
-            required
-            className={inputCls}
-          />
-          <input
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            placeholder="Popis (nepovinné)"
-            className={inputCls}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <select
-              value={form.classId}
-              onChange={(e) => setForm({ ...form, classId: e.target.value })}
-              className={inputCls}
-            >
-              {active.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.schoolYear})
-                </option>
-              ))}
-            </select>
-            <select
-              value={form.themeStyle}
-              onChange={(e) =>
-                setForm({ ...form, themeStyle: e.target.value as typeof form.themeStyle })
-              }
-              className={inputCls}
-            >
-              <option value="default">Neutrální</option>
-              <option value="loxone">Loxone (zelená)</option>
-              <option value="cad3d">3D CAD (modrá)</option>
-            </select>
-          </div>
-          <button
-            disabled={busy}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-60"
-          >
-            <Plus className="h-4 w-4" /> {busy ? "Ukládám…" : "Vytvořit předmět"}
-          </button>
-        </>
+      {reveal && (
+        <PasswordReveal
+          name={reveal.name}
+          password={reveal.password}
+          onClose={() => setReveal(null)}
+        />
       )}
     </form>
   );
 }
 
-/* ================= classes summary ================= */
+/* ================= Audit Log Section ================= */
 
-function ClassesSummary({ classes }: { classes: AdminData["classes"] }) {
+function actionLabel(action: string): string {
+  switch (action) {
+    case "GRADE_SET":
+      return "Zapsání známky";
+    case "GRADE_CHANGE":
+      return "Změna známky";
+    case "GRADE_DELETE":
+      return "Smazání známky";
+    case "FEEDBACK_CHANGE":
+      return "Změna zpětné vazby";
+    case "SUBMISSION_LOCK":
+      return "Uzamčení úkolu";
+    case "SUBMISSION_UNLOCK":
+      return "Odemčení úkolu";
+    case "EXTENSION_SET":
+      return "Prodloužení termínu";
+    case "EXTENSION_CLEAR":
+      return "Zrušení prodloužení";
+    default:
+      return action;
+  }
+}
+
+function AuditLogSection({ logs }: { logs: AdminData["auditLogs"] }) {
+  const [filterQuery, setFilterQuery] = useState("");
+
+  const q = filterQuery.trim().toLowerCase();
+  const filtered = q
+    ? logs.filter(
+        (l) =>
+          l.actorName.toLowerCase().includes(q) ||
+          l.targetName.toLowerCase().includes(q) ||
+          actionLabel(l.action).toLowerCase().includes(q),
+      )
+    : logs;
+
   return (
     <section>
-      <h2 className="mb-4 flex items-center gap-2 font-display text-xl font-semibold">
-        <Users className="h-5 w-5 text-subject" /> Třídy ({classes.length})
-      </h2>
-      <div className="surface-card divide-y divide-border">
-        {classes.map((c) => (
-          <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-            <div>
-              <span className="font-medium">{c.name}</span>{" "}
-              <span className="text-muted-foreground">({c.schoolYear})</span>
-              {c.isArchived && (
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  archiv
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 font-display text-xl font-semibold text-foreground">
+          <History className="h-5 w-5 text-subject" /> Historie kritických změn ({filtered.length})
+        </h2>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Filtrovat logy…"
+            className={`${inputCls} !py-1.5 pl-8 w-52`}
+          />
+        </div>
+      </div>
+
+      <div className="surface-card p-0 overflow-hidden">
+        <div className="max-h-[640px] overflow-y-auto divide-y divide-border text-sm">
+          {filtered.map((l) => (
+            <div
+              key={l.id}
+              className="p-4 transition-colors hover:bg-accent/40 flex flex-col gap-1"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-foreground">{l.actorName}</span>
+                <span className="text-xs text-muted-foreground">{formatDateTime(l.createdAt)}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-2 text-xs">
+                <span className="rounded bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                  {actionLabel(l.action)}
                 </span>
+                <span className="text-muted-foreground">pro</span>
+                <span className="font-medium text-foreground">{l.targetName}</span>
+              </div>
+              {(l.oldValue !== null || l.newValue !== null) && (
+                <div className="mt-1 bg-muted/30 border border-border/40 rounded p-1.5 text-xs font-mono flex items-center gap-2">
+                  {l.oldValue !== null ? (
+                    <>
+                      <span className="text-red-600 line-through truncate max-w-[150px]">
+                        {l.oldValue || "—"}
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                    </>
+                  ) : null}
+                  <span className="text-green-600 font-semibold truncate max-w-[150px]">
+                    {l.newValue || "—"}
+                  </span>
+                </div>
               )}
             </div>
-            <span className="text-xs text-muted-foreground">
-              {c.studentCount} studentů · {c.subjectCount} předmětů
-            </span>
-          </div>
-        ))}
+          ))}
+
+          {filtered.length === 0 && (
+            <div className="p-8 text-center text-muted-foreground flex flex-col items-center gap-2">
+              <ShieldAlert className="h-8 w-8 text-muted-foreground/60" />
+              <span>Žádné záznamy historie neodpovídají vyhledávání.</span>
+            </div>
+          )}
+        </div>
       </div>
-      <Link
-        to="/classes"
-        className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-subject underline underline-offset-2 hover:opacity-80"
-      >
-        Spravovat třídy a studenty <ExternalLink className="h-3.5 w-3.5" />
-      </Link>
     </section>
   );
 }

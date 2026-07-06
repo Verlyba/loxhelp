@@ -69,10 +69,11 @@
   --input: oklch(0.92 0.01 255);
   --ring: oklch(0.7 0.04 256);
 
-  /* Per-subject accent (defaults to neutral primary) */
-  --subject: oklch(0.55 0.18 260);
+  /* Per-subject accent — the app default is the neutral grey theme, the same
+     design language as the courses (only course pages recolor it). */
+  --subject: oklch(0.42 0.02 260);
   --subject-foreground: oklch(0.99 0 0);
-  --subject-soft: oklch(0.95 0.04 260);
+  --subject-soft: oklch(0.93 0.006 260);
 
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 8px 24px -12px oklch(0 0 0 / 0.1);
   --shadow-elevated: 0 2px 4px oklch(0 0 0 / 0.05), 0 20px 40px -16px oklch(0 0 0 / 0.18);

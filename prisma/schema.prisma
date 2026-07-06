@@ -38,6 +38,8 @@ model User {
   auditLogs         AuditLog[]         @relation("AuditActor")
   consents          AssignmentConsent[]
   testAttempts      TestAttempt[]
+  taughtSubjects    Subject[]          @relation("SubjectTeacher")
+  sentNotifications ClassNotification[] @relation("NotificationAuthor")
 }
 
 // Audit trail for classification/submission-state changes (PRD §5C). Every
@@ -104,13 +106,14 @@ model Session {
 }
 
 model Class {
-  id         String    @id @default(uuid())
-  name       String // e.g. "2EB"
-  schoolYear String // e.g. "2026/2027"
-  isArchived Boolean   @default(false)
-  createdAt  DateTime  @default(now())
-  subjects   Subject[]
-  students   User[]
+  id            String              @id @default(uuid())
+  name          String // e.g. "2EB"
+  schoolYear    String // e.g. "2026/2027"
+  isArchived    Boolean             @default(false)
+  createdAt     DateTime            @default(now())
+  subjects      Subject[]
+  students      User[]
+  notifications ClassNotification[]
 }
 
 model Subject {
@@ -121,6 +124,8 @@ model Subject {
   themeStyle  String  @default("default") // loxone | cad3d | default
   classId     String
   class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  teacherId   String?
+  teacher     User?   @relation("SubjectTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
 
   assignments   Assignment[]
   enrollments   Enrollment[]
@@ -130,6 +135,7 @@ model Subject {
   tests         Test[]
 
   @@index([classId])
+  @@index([teacherId])
 }
 
 // Teaching group inside a subject — the class splits into these for lessons
@@ -376,4 +382,18 @@ model Answer {
   @@unique([attemptId, questionId])
   @@index([attemptId])
   @@index([questionId])
+}
+
+model ClassNotification {
+  id        String   @id @default(uuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  title     String
+  body      String   @default("")
+  authorId  String
+  author    User     @relation("NotificationAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([classId])
+  @@index([authorId])
 }

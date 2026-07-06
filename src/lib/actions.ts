@@ -4,13 +4,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getSessionUser } from "@/lib/session";
 import { hashPassword } from "@/lib/password";
 import { generatePairsInGroupCore } from "@/lib/pairing";
 import { isStaff, ROLES } from "@/lib/roles";
 import type { SessionUser, TargetType } from "@/lib/types";
 
 export async function requireUser(): Promise<SessionUser> {
+  const { getSessionUser } = await import("@/lib/session");
   const user = await getSessionUser();
   if (!user) throw redirect({ to: "/auth" });
   return user;
@@ -378,6 +378,7 @@ export const createSubject = createServerFn({ method: "POST" })
         description: z.string().default(""),
         themeStyle: z.enum(["loxone", "cad3d", "default"]),
         classId: z.string().min(1),
+        teacherId: z.string().nullable().optional(),
       })
       .parse(d),
   )
@@ -389,7 +390,16 @@ export const createSubject = createServerFn({ method: "POST" })
     for (let n = 2; await db.subject.findUnique({ where: { slug } }); n++) {
       slug = `${base}-${n}`;
     }
-    const created = await db.subject.create({ data: { ...data, slug } });
+    const created = await db.subject.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        themeStyle: data.themeStyle,
+        classId: data.classId,
+        teacherId: data.teacherId || null,
+        slug,
+      },
+    });
     return { id: created.id, slug };
   });
 
@@ -770,6 +780,14 @@ export const generatePairsInGroup = createServerFn({ method: "POST" })
 
 // --- users & enrollment ---
 
+/** Readable one-time password, e.g. "mrak-7342" — shown once after creation. */
+function generatePassword(): string {
+  const words = ["mrak", "vlak", "leto", "kolo", "les", "most", "vitr", "reka", "hora", "pole"];
+  const word = words[Math.floor(Math.random() * words.length)];
+  const digits = Math.floor(1000 + Math.random() * 9000);
+  return `${word}-${digits}`;
+}
+
 export const createUser = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
@@ -778,7 +796,8 @@ export const createUser = createServerFn({ method: "POST" })
         lastName: z.string().min(1),
         email: z.string().email(),
         role: z.enum(ROLES),
-        password: z.string().min(4),
+        // Optional: when omitted the server generates one and returns it once.
+        password: z.string().min(4).optional(),
         classId: z.string().nullable().default(null),
       })
       .parse(d),
@@ -789,17 +808,20 @@ export const createUser = createServerFn({ method: "POST" })
     if (await db.user.findUnique({ where: { email } })) {
       throw new Error("Uživatel s tímto emailem už existuje.");
     }
+    const password = data.password ?? generatePassword();
     const created = await db.user.create({
       data: {
         firstName: data.firstName,
         lastName: data.lastName,
         email,
         role: data.role,
-        passwordHash: hashPassword(data.password),
+        passwordHash: hashPassword(password),
         classId: data.role === "STUDENT" ? data.classId : null,
       },
     });
-    return { id: created.id };
+    // Returned exactly once so the teacher can hand it to the student; the
+    // hash is all that's stored.
+    return { id: created.id, generatedPassword: data.password ? null : password };
   });
 
 export const enrollStudents = createServerFn({ method: "POST" })
@@ -922,6 +944,8 @@ export const updateSubject = createServerFn({ method: "POST" })
         name: z.string().min(1),
         description: z.string().default(""),
         themeStyle: z.enum(["loxone", "cad3d", "default"]),
+        classId: z.string().min(1).optional(),
+        teacherId: z.string().nullable().optional(),
       })
       .parse(d),
   )
@@ -929,7 +953,13 @@ export const updateSubject = createServerFn({ method: "POST" })
     await requireStaff();
     await db.subject.update({
       where: { id: data.id },
-      data: { name: data.name, description: data.description, themeStyle: data.themeStyle },
+      data: {
+        name: data.name,
+        description: data.description,
+        themeStyle: data.themeStyle,
+        classId: data.classId,
+        teacherId: data.teacherId || null,
+      },
     });
     return { ok: true };
   });
@@ -1141,5 +1171,36 @@ export const unenrollStudent = createServerFn({ method: "POST" })
       where: { userId_subjectId: { userId: data.userId, subjectId: data.subjectId } },
     });
 
+    return { ok: true };
+  });
+
+export const sendClassNotification = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        classId: z.string().min(1),
+        title: z.string().min(1),
+        body: z.string().default(""),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const user = await requireStaff();
+    await db.classNotification.create({
+      data: {
+        classId: data.classId,
+        title: data.title,
+        body: data.body,
+        authorId: user.id,
+      },
+    });
+    return { ok: true };
+  });
+
+export const deleteClassNotification = createServerFn({ method: "POST" })
+  .inputValidator((id: string) => z.string().parse(id))
+  .handler(async ({ data: id }) => {
+    await requireStaff();
+    await db.classNotification.delete({ where: { id } });
     return { ok: true };
   });

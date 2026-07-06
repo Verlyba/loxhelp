@@ -3,6 +3,7 @@ import { ChevronRight, Inbox, CheckCircle2 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubmissionHub } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
+import { PageShell } from "@/components/page-shell";
 import { TARGET_LABEL, type HubCourse, type HubItem, type TaskStatus } from "@/lib/types";
 
 export const Route = createFileRoute("/submissions")({
@@ -28,16 +29,15 @@ function SubmissionHub() {
   const totalMissing = courses.reduce((n, c) => n + c.missing.length, 0);
 
   return (
-    <main className="mx-auto max-w-5xl px-4 sm:px-6 py-8">
-      <header className="mb-8">
-        <h1 className="text-3xl sm:text-4xl font-semibold">Odevzdávárna</h1>
-        <p className="mt-2 text-muted-foreground">
-          {totalMissing === 0
-            ? "Vše odevzdáno — nic tu na tebe nečeká. 🎉"
-            : `Čeká na tebe ${totalMissing} ${totalMissing === 1 ? "úkol" : totalMissing < 5 ? "úkoly" : "úkolů"} v aktivních kurzech.`}
-        </p>
-      </header>
-
+    <PageShell
+      eyebrow="Vše na jednom místě"
+      title="Odevzdávárna"
+      subtitle={
+        totalMissing === 0
+          ? "Vše odevzdáno — nic tu na tebe nečeká. 🎉"
+          : `Čeká na tebe ${totalMissing} ${totalMissing === 1 ? "úkol" : totalMissing < 5 ? "úkoly" : "úkolů"} v aktivních kurzech.`
+      }
+    >
       {courses.length === 0 ? (
         <p className="text-muted-foreground">Nejste zapsáni v žádném aktivním kurzu.</p>
       ) : (
@@ -93,7 +93,7 @@ function SubmissionHub() {
           ))}
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }
 

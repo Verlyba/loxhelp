@@ -18,6 +18,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SubjectsIndexRouteImport } from './routes/subjects.index'
 import { Route as SubjectsSlugRouteImport } from './routes/subjects.$slug'
+import { Route as StudentsSidRouteImport } from './routes/students.$sid'
 import { Route as SubjectsSlugIndexRouteImport } from './routes/subjects.$slug.index'
 import { Route as SubjectsSlugTestsRouteImport } from './routes/subjects.$slug.tests'
 import { Route as SubjectsSlugOverviewRouteImport } from './routes/subjects.$slug.overview'
@@ -72,6 +73,11 @@ const SubjectsSlugRoute = SubjectsSlugRouteImport.update({
   id: '/$slug',
   path: '/$slug',
   getParentRoute: () => SubjectsRoute,
+} as any)
+const StudentsSidRoute = StudentsSidRouteImport.update({
+  id: '/students/$sid',
+  path: '/students/$sid',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const SubjectsSlugIndexRoute = SubjectsSlugIndexRouteImport.update({
   id: '/',
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/classes': typeof ClassesRoute
   '/subjects': typeof SubjectsRouteWithChildren
   '/submissions': typeof SubmissionsRoute
+  '/students/$sid': typeof StudentsSidRoute
   '/subjects/$slug': typeof SubjectsSlugRouteWithChildren
   '/subjects/': typeof SubjectsIndexRoute
   '/subjects/$slug/groups': typeof SubjectsSlugGroupsRoute
@@ -147,6 +154,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/classes': typeof ClassesRoute
   '/submissions': typeof SubmissionsRoute
+  '/students/$sid': typeof StudentsSidRoute
   '/subjects': typeof SubjectsIndexRoute
   '/subjects/$slug/groups': typeof SubjectsSlugGroupsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/classes': typeof ClassesRoute
   '/subjects': typeof SubjectsRouteWithChildren
   '/submissions': typeof SubmissionsRoute
+  '/students/$sid': typeof StudentsSidRoute
   '/subjects/$slug': typeof SubjectsSlugRouteWithChildren
   '/subjects/': typeof SubjectsIndexRoute
   '/subjects/$slug/groups': typeof SubjectsSlugGroupsRoute
@@ -189,6 +198,7 @@ export interface FileRouteTypes {
     | '/classes'
     | '/subjects'
     | '/submissions'
+    | '/students/$sid'
     | '/subjects/$slug'
     | '/subjects/'
     | '/subjects/$slug/groups'
@@ -208,6 +218,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/classes'
     | '/submissions'
+    | '/students/$sid'
     | '/subjects'
     | '/subjects/$slug/groups'
     | '/subjects/$slug/news'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/classes'
     | '/subjects'
     | '/submissions'
+    | '/students/$sid'
     | '/subjects/$slug'
     | '/subjects/'
     | '/subjects/$slug/groups'
@@ -248,6 +260,7 @@ export interface RootRouteChildren {
   ClassesRoute: typeof ClassesRoute
   SubjectsRoute: typeof SubjectsRouteWithChildren
   SubmissionsRoute: typeof SubmissionsRoute
+  StudentsSidRoute: typeof StudentsSidRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -314,6 +327,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/subjects/$slug'
       preLoaderRoute: typeof SubjectsSlugRouteImport
       parentRoute: typeof SubjectsRoute
+    }
+    '/students/$sid': {
+      id: '/students/$sid'
+      path: '/students/$sid'
+      fullPath: '/students/$sid'
+      preLoaderRoute: typeof StudentsSidRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/subjects/$slug/': {
       id: '/subjects/$slug/'
@@ -440,6 +460,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClassesRoute: ClassesRoute,
   SubjectsRoute: SubjectsRouteWithChildren,
   SubmissionsRoute: SubmissionsRoute,
+  StudentsSidRoute: StudentsSidRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -80,6 +80,7 @@ async function main() {
         "Materiály k výuce a certifikaci systému Loxone. Konfigurace Miniserveru, programování a integrace.",
       themeStyle: "loxone",
       classId: schoolClass.id,
+      teacherId: teacher.id,
     },
   });
   const cad = await db.subject.create({
@@ -90,6 +91,7 @@ async function main() {
         "Parametrické modelování, sestavy a technické výkresy od základů po pokročilé techniky.",
       themeStyle: "cad3d",
       classId: schoolClass.id,
+      teacherId: teacher.id,
     },
   });
 
