@@ -57,6 +57,7 @@ function ContentPage({ page }: { page: SubjectPageDetail }) {
   const user = useUser();
   const staff = !!user && isStaff(user.role);
   const [editing, setEditing] = useState(false);
+  const subject = subjectRoute.useLoaderData() as SubjectDetail;
 
   return (
     <article className="surface-card p-6 sm:p-8">
@@ -97,6 +98,48 @@ function ContentPage({ page }: { page: SubjectPageDetail }) {
                 Pracovní soubory a podklady
               </h3>
               <FileGrid files={page.files} />
+            </div>
+          )}
+
+          {/* Linked assignments list */}
+          {(page.showAssignments || (staff && page.assignments && page.assignments.length > 0)) && (
+            <div className="mt-8 border-t border-border pt-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="font-display text-lg font-semibold text-foreground">
+                  Úkoly k odevzdání
+                </h3>
+                {staff && <CreateAssignment subjectId={subject.id} pageId={page.id} />}
+              </div>
+              {!page.assignments || page.assignments.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                  Zatím žádné úkoly pod touto stránkou.
+                </p>
+              ) : (
+                <ul className="grid gap-3">
+                  {page.assignments.map((a) => (
+                    <li key={a.id}>
+                      <Link
+                        to="/subjects/$slug/assignments/$aid"
+                        params={{ slug: subject.slug, aid: a.id }}
+                        className="surface-card grid items-center gap-3 p-5 transition-shadow hover:shadow-[var(--shadow-elevated)] sm:grid-cols-[minmax(0,1fr)_auto_150px]"
+                      >
+                        <div className="min-w-0">
+                          <p className="font-medium">{a.title}</p>
+                          <p className="text-sm text-muted-foreground line-clamp-1">
+                            {a.description}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-end text-sm">
+                          <AssignmentBadge a={a} staff={staff} />
+                        </div>
+                        <span className="mono text-sm text-muted-foreground sm:text-right">
+                          {formatDateTime(a.dueAt)}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
@@ -288,24 +331,20 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
               <h4 className="font-display font-semibold text-sm leading-snug text-foreground group-hover:text-subject transition-colors truncate">
                 {file.label}
               </h4>
-              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px]">
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <span
-                  className={`px-1.5 py-px rounded-full font-medium ring-1 ring-border/50 ${CATEGORY_COLORS[file.category] || CATEGORY_COLORS.material}`}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ring-1 ${
+                    CATEGORY_COLORS[file.category] || CATEGORY_COLORS.material
+                  }`}
                 >
                   {CATEGORY_LABELS[file.category] || file.category}
                 </span>
                 {!file.isPublished && (
-                  <span className="rounded-full bg-amber-50 px-1.5 py-px font-semibold text-amber-700 ring-1 ring-amber-200">
+                  <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 ring-1 ring-amber-200 text-[10px] font-bold uppercase tracking-wider dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/30">
                     Koncept
                   </span>
                 )}
-                <span className="font-mono text-muted-foreground">
-                  {formatBytes(file.fileSize)}
-                </span>
               </div>
-              {file.description && (
-                <p className="mt-1 text-xs text-foreground/65 line-clamp-1">{file.description}</p>
-              )}
             </div>
 
             {/* Download button */}
@@ -332,12 +371,13 @@ function PageEditor({ page, onDone }: { page: SubjectPageDetail; onDone: () => v
   const update = useServerFn(updateSubjectPage);
   const [title, setTitle] = useState(page.title);
   const [content, setContent] = useState(page.content);
+  const [showAssignments, setShowAssignments] = useState(page.showAssignments);
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     setBusy(true);
     try {
-      await update({ data: { id: page.id, title, content } });
+      await update({ data: { id: page.id, title, content, showAssignments } });
       await router.invalidate();
       onDone();
     } finally {
@@ -363,6 +403,16 @@ function PageEditor({ page, onDone }: { page: SubjectPageDetail; onDone: () => v
         Formátování: # nadpis, ## podnadpis, - odrážky, **tučně**, [odkaz](https://...),
         ![obrázek](https://...).
       </p>
+
+      <label className="flex items-center gap-2 text-sm font-semibold text-foreground cursor-pointer mt-1">
+        <input
+          type="checkbox"
+          checked={showAssignments}
+          onChange={(e) => setShowAssignments(e.target.checked)}
+          className="rounded border-input bg-background outline-none text-subject focus:ring-ring"
+        />
+        Zobrazit úkoly pod touto stránkou
+      </label>
 
       <div className="flex gap-2 mt-4 border-t border-border pt-4">
         <button
@@ -799,7 +849,8 @@ const TARGET_HINT: Record<TargetType, string> = {
   GROUP: "Odevzdává celá učební skupina.",
 };
 
-function CreateAssignment({ subjectId }: { subjectId: string }) {
+function CreateAssignment({ subjectId, pageId }: { subjectId: string; pageId?: string }) {
+  const subject = subjectRoute.useLoaderData() as SubjectDetail;
   const router = useRouter();
   const create = useServerFn(createAssignment);
   const [open, setOpen] = useState(false);
@@ -812,6 +863,7 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
   const [consentText, setConsentText] = useState(
     "Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím.",
   );
+  const [selectedPageId, setSelectedPageId] = useState(pageId || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -830,6 +882,7 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
           isPublished,
           requiresConsent,
           consentText: requiresConsent ? consentText : "",
+          pageId: selectedPageId || null,
         },
       });
       setTitle("");
@@ -972,6 +1025,22 @@ function CreateAssignment({ subjectId }: { subjectId: string }) {
                   />
                 </label>
               )}
+
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Přiřadit ke stránce kurzu
+                <select
+                  value={selectedPageId}
+                  onChange={(e) => setSelectedPageId(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                >
+                  <option value="">Žádná (obecný úkol)</option>
+                  {subject.pages.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-sm">
                 <input

@@ -571,7 +571,7 @@ export const getSubjectPage = createServerFn({ method: "GET" })
     const page = await db.subjectPage.findFirst({
       where: { slug: data.pageSlug, subject: { slug: data.subjectSlug } },
       include: {
-        subject: { select: { id: true } },
+        subject: { select: { id: true, slug: true } },
         // Students see only published materials (PRD §5A); staff see drafts too.
         files: { where: staff ? {} : { isPublished: true }, orderBy: { order: "asc" } },
       },
@@ -579,12 +579,55 @@ export const getSubjectPage = createServerFn({ method: "GET" })
     if (!page) throw redirect({ to: "/subjects/$slug", params: { slug: data.subjectSlug } });
     await assertEnrolledOrStaff(user, page.subject.id);
 
+    // Fetch assignments linked to this page
+    const dbAssignments = await db.assignment.findMany({
+      where: { pageId: page.id },
+      orderBy: { dueDate: "asc" },
+    });
+
+    const unitGroups = await db.submission.groupBy({
+      by: ["assignmentId", "unitKey"],
+      where: { assignment: { pageId: page.id } },
+    });
+    const submittedByAssignment = new Map<string, number>();
+    for (const g of unitGroups) {
+      submittedByAssignment.set(
+        g.assignmentId,
+        (submittedByAssignment.get(g.assignmentId) ?? 0) + 1,
+      );
+    }
+    const totals = await subjectUnitTotals(page.subject.id);
+
+    let studentInfos: Awaited<ReturnType<typeof studentAssignmentInfos>> | null = null;
+    if (!staff) studentInfos = await studentAssignmentInfos(user.id, page.subject.id);
+    const infoByAssignment = new Map((studentInfos ?? []).map((i) => [i.assignment.id, i]));
+
+    const visible = staff ? dbAssignments : dbAssignments.filter((a) => a.isPublished);
+    const assignments: AssignmentOverview[] = visible.map((a) => {
+      const info = infoByAssignment.get(a.id);
+      return {
+        id: a.id,
+        title: a.title,
+        description: a.description,
+        dueAt: a.dueDate.toISOString(),
+        targetType: asTarget(a.targetType),
+        isPublished: a.isPublished,
+        submittedUnits: submittedByAssignment.get(a.id) ?? 0,
+        totalUnits: totals[asTarget(a.targetType)],
+        myStatus: info?.status ?? null,
+        myGrade: info?.grade ?? null,
+        pageId: a.pageId,
+      };
+    });
+
     return {
       id: page.id,
       title: page.title,
       slug: page.slug,
       template: page.template === "assignments" ? ("assignments" as const) : ("content" as const),
       content: page.content,
+      showAssignments: page.showAssignments,
+      assignments: page.showAssignments || staff ? assignments : [],
       updatedAt: page.updatedAt.toISOString(),
       files: page.files.map((f) => ({
         id: f.id,
@@ -823,6 +866,7 @@ export const getAssignment = createServerFn({ method: "GET" })
           }
         : null,
       consents: consentsMapped,
+      pageId: assignment.pageId,
     };
   });
 

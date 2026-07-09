@@ -69,6 +69,7 @@ export interface AssignmentOverview {
   totalUnits: number;
   myStatus: TaskStatus | null; // set for students, null for staff
   myGrade: string | null;
+  pageId?: string | null;
 }
 
 export interface ClassWithSubjects {
@@ -120,6 +121,8 @@ export interface SubjectPageDetail extends SubjectPageNav {
   content: string;
   updatedAt: string; // ISO
   files: SubjectFileItem[];
+  showAssignments: boolean;
+  assignments?: AssignmentOverview[];
 }
 
 export interface AssignmentBrief {
@@ -308,6 +311,7 @@ export interface AssignmentDetail {
     acceptedAt: string; // ISO string
   } | null;
   consents?: AssignmentConsentView[];
+  pageId?: string | null;
 }
 
 /* ---------- study groups & pairs management ---------- */

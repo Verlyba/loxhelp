@@ -1,4 +1,4 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, useRouter, getRouteApi } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -32,14 +32,23 @@ import {
   updateAssignment,
   deleteAssignment,
   recordConsent,
+  downloadAllSubmissionsZip,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
 import { formatDateTime, formatBytes } from "@/lib/format";
-import { TARGET_LABEL, type AssignmentDetail, type UnitView, type VersionItem } from "@/lib/types";
+import {
+  TARGET_LABEL,
+  type AssignmentDetail,
+  type UnitView,
+  type VersionItem,
+  type SubjectDetail,
+} from "@/lib/types";
 import { GradingModal } from "@/components/grading-modal";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+
+const subjectRoute = getRouteApi("/subjects/$slug");
 
 export const Route = createFileRoute("/subjects/$slug/assignments/$aid")({
   beforeLoad: ({ context }) => {
@@ -237,6 +246,7 @@ function EditAssignmentModal({
 }) {
   const router = useRouter();
   const update = useServerFn(updateAssignment);
+  const subject = subjectRoute.useLoaderData() as SubjectDetail;
 
   const [title, setTitle] = useState(assignment.title);
   const [description, setDescription] = useState(assignment.description);
@@ -249,6 +259,7 @@ function EditAssignmentModal({
     assignment.consentText ||
       "Byl jsem seznámen s podmínkami zadání, kritérii hodnocení a zadání rozumím.",
   );
+  const [pageId, setPageId] = useState(assignment.pageId || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -266,6 +277,7 @@ function EditAssignmentModal({
           targetType,
           requiresConsent,
           consentText: requiresConsent ? consentText : "",
+          pageId: pageId || null,
         },
       });
       await router.invalidate();
@@ -368,6 +380,22 @@ function EditAssignmentModal({
               />
             </label>
           )}
+
+          <label className="block text-xs font-semibold text-muted-foreground">
+            Přiřadit ke stránce kurzu
+            <select
+              value={pageId}
+              onChange={(e) => setPageId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
+            >
+              <option value="">Žádná (obecný úkol)</option>
+              {subject.pages.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+          </label>
 
           {error && <p className="text-xs text-red-600">{error}</p>}
 
@@ -805,9 +833,27 @@ function GradeChip({ value }: { value: string }) {
 function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
   const { slug } = Route.useParams();
   const [grading, setGrading] = useState<UnitView | null>(null);
+  const downloadAll = useServerFn(downloadAllSubmissionsZip);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+
+  const handleDownloadAll = async () => {
+    setDownloadingAll(true);
+    try {
+      const res = await downloadAll({ data: assignment.id });
+      triggerDownload(res.fileName, res.mimeType, res.dataBase64);
+    } catch (err) {
+      console.error(err);
+      toast.error(err instanceof Error ? err.message : "Chyba při stahování archivu.");
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   const submitted = assignment.units.filter((u) => u.versions.length > 0).length;
   const graded = assignment.units.filter((u) => u.grade).length;
   const isIndividual = assignment.targetType === "INDIVIDUAL";
+
+  const unsubmittedUnits = assignment.units.filter((u) => u.versions.length === 0);
 
   return (
     <section className="mt-8 space-y-3">
@@ -815,15 +861,49 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
         <h2 className="font-display text-lg font-semibold flex items-center gap-2">
           <Users2 className="h-5 w-5 text-subject" /> Odevzdání a hodnocení
         </h2>
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
-            odevzdáno {submitted}/{assignment.units.length}
-          </span>
-          <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
-            oznámkováno {graded}/{assignment.units.length}
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
+              odevzdáno {submitted}/{assignment.units.length}
+            </span>
+            <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
+              oznámkováno {graded}/{assignment.units.length}
+            </span>
+          </div>
+          <button
+            onClick={handleDownloadAll}
+            disabled={downloadingAll || submitted === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-subject/40 bg-subject-soft/30 hover:bg-subject-soft px-3 py-1.5 text-xs font-semibold text-subject transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <Download className="h-3.5 w-3.5" />
+            {downloadingAll ? "Zipuji..." : "Stáhnout vše (ZIP)"}
+          </button>
         </div>
       </div>
+
+      {unsubmittedUnits.length > 0 && (
+        <div className="surface-card p-4 border-l-4 border-amber-500 bg-amber-50/20 dark:bg-amber-950/10">
+          <h3 className="font-semibold text-amber-800 dark:text-amber-300 text-sm flex items-center gap-1.5 mb-2">
+            <AlertCircle className="h-4 w-4 shrink-0" /> Neodevzdali ({unsubmittedUnits.length})
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {unsubmittedUnits.map((u) => (
+              <span
+                key={u.key}
+                className="inline-flex items-center gap-1 bg-surface border border-border px-2.5 py-1 rounded-md text-xs text-foreground"
+                title={u.members.map((m) => m.name).join(", ")}
+              >
+                <span className="font-medium">{u.name}</span>
+                {u.members.length > 1 && (
+                  <span className="text-muted-foreground text-[10px]">
+                    ({u.members.map((m) => m.name.split(" ")[0]).join(", ")})
+                  </span>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {assignment.units.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
@@ -959,6 +1039,7 @@ function UnitRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const latest = unit.versions[0];
+  const { download, downloading } = useDownload();
 
   const counts = new Map<string, number>();
   for (const v of unit.versions) {
@@ -1084,11 +1165,25 @@ function UnitRow({
         {/* Latest version */}
         <td className="px-3 py-2.5 align-top text-xs text-muted-foreground">
           {latest ? (
-            <>
-              <span className="mono font-semibold text-foreground">v{latest.version}</span> ·{" "}
-              {formatDateTime(latest.uploadedAt)}
-              <span className="block truncate max-w-48">{latest.uploadedByName}</span>
-            </>
+            <div className="flex items-start gap-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  download(latest.id);
+                }}
+                disabled={downloading === latest.id}
+                title="Stáhnout nejnovější odevzdání"
+                className="inline-flex items-center gap-1 font-semibold text-subject hover:underline mono disabled:opacity-60 text-left cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5 shrink-0" />v{latest.version}
+              </button>
+              <div className="min-w-0">
+                <div>{formatDateTime(latest.uploadedAt)}</div>
+                <span className="block truncate max-w-48 text-muted-foreground">
+                  {latest.uploadedByName}
+                </span>
+              </div>
+            </div>
           ) : (
             "—"
           )}

@@ -1,4 +1,7 @@
 import type { ReactNode } from "react";
+import { useUser } from "@/lib/use-user";
+import { useRouterState } from "@tanstack/react-router";
+import { StudentPanel } from "@/components/student-panel";
 
 /**
  * Shared page frame — the same visual line as the course pages: a full-width
@@ -22,6 +25,12 @@ export function PageShell({
   /** widen the container for dense tables (Správa) */
   wide?: boolean;
 }) {
+  const user = useUser();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isStudent = user?.role === "STUDENT";
+  const inCourse = /^\/subjects\/[^/]+/.test(pathname);
+  const showGlobalRail = isStudent && !inCourse;
+
   const container = wide ? "max-w-[88rem]" : "max-w-7xl";
   return (
     <>
@@ -41,7 +50,20 @@ export function PageShell({
           </div>
         </div>
       </div>
-      <main className={`mx-auto ${container} px-4 sm:px-6 py-8`}>{children}</main>
+      <main className={`mx-auto ${container} px-4 sm:px-6 py-8`}>
+        {showGlobalRail ? (
+          <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+            <div className="min-w-0">{children}</div>
+            <aside className="hidden xl:block">
+              <div className="sticky top-[4.5rem]">
+                <StudentPanel />
+              </div>
+            </aside>
+          </div>
+        ) : (
+          children
+        )}
+      </main>
     </>
   );
 }

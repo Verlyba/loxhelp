@@ -13,7 +13,7 @@ import { useEffect, type ReactNode } from "react";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SiteHeader } from "@/components/site-header";
-import { StudentPanel, StudentPanelDrawer } from "@/components/student-panel";
+import { StudentPanelDrawer } from "@/components/student-panel";
 import { DialogProvider } from "@/components/dialog-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { useUser } from "@/lib/use-user";
@@ -136,30 +136,14 @@ function AppShell() {
   const user = useUser();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isStudent = user?.role === "STUDENT";
-  // Course pages have their own right rail with course-specific panels —
-  // showing the global one too would duplicate the same info.
   const inCourse = /^\/subjects\/[^/]+/.test(pathname);
-  const showGlobalRail = isStudent && !inCourse;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <SiteHeader />
-      {showGlobalRail ? (
-        <div className="mx-auto flex w-full max-w-[120rem] gap-6 px-0 xl:px-6 pb-28">
-          <div className="min-w-0 flex-1">
-            <Outlet />
-          </div>
-          <aside className="hidden w-80 shrink-0 py-8 xl:block">
-            <div className="sticky top-[4.5rem]">
-              <StudentPanel />
-            </div>
-          </aside>
-        </div>
-      ) : (
-        <div className={inCourse ? "" : "pb-28"}>
-          <Outlet />
-        </div>
-      )}
+      <div className={inCourse ? "" : "pb-28"}>
+        <Outlet />
+      </div>
       {isStudent && !inCourse && <StudentPanelDrawer />}
     </div>
   );

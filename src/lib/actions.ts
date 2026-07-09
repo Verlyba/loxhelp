@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
+import { zipSync } from "fflate";
 import { redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -448,14 +449,24 @@ export const updateSubjectPage = createServerFn({ method: "POST" })
         id: z.string().min(1),
         title: z.string().min(1).optional(),
         content: z.string().optional(),
+        showAssignments: z.boolean().optional(),
       })
       .parse(d),
   )
   .handler(async ({ data }) => {
     await requireStaff();
+    const updateData: {
+      title?: string;
+      content?: string;
+      showAssignments?: boolean;
+    } = {};
+    if (data.title !== undefined) updateData.title = data.title;
+    if (data.content !== undefined) updateData.content = data.content;
+    if (data.showAssignments !== undefined) updateData.showAssignments = data.showAssignments;
+
     await db.subjectPage.update({
       where: { id: data.id },
-      data: { title: data.title, content: data.content },
+      data: updateData,
     });
     return { ok: true };
   });
@@ -558,6 +569,7 @@ export const createAssignment = createServerFn({ method: "POST" })
         isPublished: z.boolean().default(false),
         requiresConsent: z.boolean().default(false),
         consentText: z.string().default(""),
+        pageId: z.string().nullable().optional(),
       })
       .parse(d),
   )
@@ -573,6 +585,7 @@ export const createAssignment = createServerFn({ method: "POST" })
         isPublished: data.isPublished,
         requiresConsent: data.requiresConsent,
         consentText: data.consentText,
+        pageId: data.pageId || null,
       },
     });
     return { id: created.id };
@@ -986,6 +999,7 @@ export const updateAssignment = createServerFn({ method: "POST" })
         isPublished: z.boolean().optional(),
         requiresConsent: z.boolean().optional(),
         consentText: z.string().optional(),
+        pageId: z.string().nullable().optional(),
       })
       .parse(d),
   )
@@ -999,6 +1013,7 @@ export const updateAssignment = createServerFn({ method: "POST" })
       isPublished?: boolean;
       requiresConsent?: boolean;
       consentText?: string;
+      pageId?: string | null;
     } = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.description !== undefined) updateData.description = data.description;
@@ -1007,6 +1022,7 @@ export const updateAssignment = createServerFn({ method: "POST" })
     if (data.isPublished !== undefined) updateData.isPublished = data.isPublished;
     if (data.requiresConsent !== undefined) updateData.requiresConsent = data.requiresConsent;
     if (data.consentText !== undefined) updateData.consentText = data.consentText;
+    if (data.pageId !== undefined) updateData.pageId = data.pageId;
 
     await db.assignment.update({
       where: { id: data.id },
@@ -1203,4 +1219,116 @@ export const deleteClassNotification = createServerFn({ method: "POST" })
     await requireStaff();
     await db.classNotification.delete({ where: { id } });
     return { ok: true };
+  });
+
+export const downloadAllSubmissionsZip = createServerFn({ method: "GET" })
+  .inputValidator((assignmentId: string) => z.string().parse(assignmentId))
+  .handler(async ({ data: assignmentId }) => {
+    const user = await requireUser();
+    if (!isStaff(user.role)) throw new Error("Přístup odepřen.");
+
+    const assignment = await db.assignment.findUnique({
+      where: { id: assignmentId },
+      include: {
+        subject: { select: { id: true, name: true } },
+      },
+    });
+    if (!assignment) throw new Error("Úkol nenalezen.");
+
+    const targetType = assignment.targetType;
+    const subjectId = assignment.subject.id;
+
+    // Get all submissions for this assignment
+    const subs = await db.submission.findMany({
+      where: { assignmentId },
+      orderBy: { version: "desc" },
+    });
+
+    // Map unitKey -> latest submission
+    const latestSubs = new Map<string, (typeof subs)[0]>();
+    for (const s of subs) {
+      if (!latestSubs.has(s.unitKey)) {
+        latestSubs.set(s.unitKey, s);
+      }
+    }
+
+    // Now construct names for each unit
+    const zipData: Record<string, Uint8Array> = {};
+
+    if (targetType === "INDIVIDUAL") {
+      const enrollments = await db.enrollment.findMany({
+        where: { subjectId },
+        include: { user: true },
+      });
+      for (const e of enrollments) {
+        const key = `u:${e.user.id}`;
+        const sub = latestSubs.get(key);
+        if (sub) {
+          const filePath = resolve(process.cwd(), sub.fileKey);
+          if (existsSync(filePath)) {
+            const fileBytes = readFileSync(filePath);
+            const cleanName = `${e.user.lastName}_${e.user.firstName}_${sub.fileName}`.replace(
+              /[\/\\?%*:|"<>]/g,
+              "-",
+            );
+            zipData[cleanName] = new Uint8Array(fileBytes);
+          }
+        }
+      }
+    } else if (targetType === "PAIR") {
+      const pairs = await db.pair.findMany({
+        where: { studyGroup: { subjectId } },
+        include: {
+          members: { include: { user: true } },
+        },
+      });
+      for (const p of pairs) {
+        const key = `p:${p.id}`;
+        const sub = latestSubs.get(key);
+        if (sub) {
+          const filePath = resolve(process.cwd(), sub.fileKey);
+          if (existsSync(filePath)) {
+            const fileBytes = readFileSync(filePath);
+            const membersStr = p.members
+              .map((m) => `${m.user.lastName}_${m.user.firstName}`)
+              .join("-");
+            const cleanName = `${p.name}_(${membersStr})_${sub.fileName}`.replace(
+              /[\/\\?%*:|"<>]/g,
+              "-",
+            );
+            zipData[cleanName] = new Uint8Array(fileBytes);
+          }
+        }
+      }
+    } else {
+      const groups = await db.studyGroup.findMany({
+        where: { subjectId },
+        include: {
+          members: { include: { user: true } },
+        },
+      });
+      for (const g of groups) {
+        const key = `g:${g.id}`;
+        const sub = latestSubs.get(key);
+        if (sub) {
+          const filePath = resolve(process.cwd(), sub.fileKey);
+          if (existsSync(filePath)) {
+            const fileBytes = readFileSync(filePath);
+            const cleanName = `${g.name}_${sub.fileName}`.replace(/[\/\\?%*:|"<>]/g, "-");
+            zipData[cleanName] = new Uint8Array(fileBytes);
+          }
+        }
+      }
+    }
+
+    if (Object.keys(zipData).length === 0) {
+      throw new Error("Zatím nikdo neodevzdal žádný soubor.");
+    }
+
+    const zipBuffer = zipSync(zipData);
+    return {
+      fileName: `${assignment.title.toLowerCase().replace(/\s+/g, "_")}_odevzdani.zip`,
+      mimeType: "application/zip",
+      dataBase64: Buffer.from(zipBuffer).toString("base64"),
+    };
   });

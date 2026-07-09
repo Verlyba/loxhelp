@@ -193,18 +193,20 @@ model PairMember {
 // content by default; `template` selects a page template instead ("assignments"
 // renders the live assignment list). More templates can be added later.
 model SubjectPage {
-  id        String   @id @default(uuid())
-  subjectId String
-  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
-  title     String
-  slug      String // URL: /subjects/<subject>/p/<slug>
-  template  String   @default("content") // content | assignments
-  content   String   @default("") // simple markdown-like text for content pages
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(uuid())
+  subjectId       String
+  subject         Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title           String
+  slug            String // URL: /subjects/<subject>/p/<slug>
+  template        String   @default("content") // content | assignments
+  content         String   @default("") // simple markdown-like text for content pages
+  order           Int      @default(0)
+  showAssignments Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  files SubjectFile[]
+  files       SubjectFile[]
+  assignments Assignment[]
 
   @@unique([subjectId, slug])
   @@index([subjectId])
@@ -253,6 +255,9 @@ model Assignment {
   requiresConsent Boolean @default(false)
   consentText     String  @default("")
 
+  pageId String?
+  page   SubjectPage? @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   submissions Submission[]
@@ -260,6 +265,7 @@ model Assignment {
   consents    AssignmentConsent[]
 
   @@index([subjectId])
+  @@index([pageId])
 }
 
 // A submitted file version. The "unit" that owns the version depends on the
