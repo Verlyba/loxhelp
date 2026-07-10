@@ -17,6 +17,9 @@ import {
   Upload,
   Eye,
   EyeOff,
+  BookOpen,
+  Network,
+  Layers,
 } from "lucide-react";
 import {
   updateSubjectPage,
@@ -205,55 +208,41 @@ const CATEGORY_COLORS: Record<string, string> = {
   material: "bg-slate-50 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300 ring-slate-200/50",
 };
 
-function getFileMeta(fileName: string) {
-  const ext = fileName.split(".").pop()?.toLowerCase();
-  if (ext === "pdf") {
-    return {
-      icon: FileText,
-      colorClass: "text-red-600 dark:text-red-400",
-      bgClass: "bg-red-50 dark:bg-red-950/30",
-      borderClass: "hover:border-red-300 hover:shadow-red-500/5 dark:hover:border-red-800",
-    };
-  }
-  if (ext === "pptx" || ext === "ppt") {
-    return {
-      icon: Presentation,
-      colorClass: "text-orange-600 dark:text-orange-400",
-      bgClass: "bg-orange-50 dark:bg-orange-950/30",
-      borderClass: "hover:border-orange-300 hover:shadow-orange-500/5 dark:hover:border-orange-800",
-    };
-  }
-  if (ext === "docx" || ext === "doc") {
-    return {
-      icon: FileText,
-      colorClass: "text-blue-600 dark:text-blue-400",
-      bgClass: "bg-blue-50 dark:bg-blue-950/30",
-      borderClass: "hover:border-blue-300 hover:shadow-blue-500/5 dark:hover:border-blue-800",
-    };
-  }
-  if (ext === "xls" || ext === "xlsx") {
-    return {
-      icon: FileSpreadsheet,
-      colorClass: "text-emerald-600 dark:text-emerald-400",
-      bgClass: "bg-emerald-50 dark:bg-emerald-950/30",
-      borderClass:
-        "hover:border-emerald-300 hover:shadow-emerald-500/5 dark:hover:border-emerald-800",
-    };
-  }
-  if (ext === "zip" || ext === "rar") {
-    return {
-      icon: FileArchive,
-      colorClass: "text-purple-600 dark:text-purple-400",
-      bgClass: "bg-purple-50 dark:bg-purple-950/30",
-      borderClass: "hover:border-purple-300 hover:shadow-purple-500/5 dark:hover:border-purple-800",
-    };
-  }
-  return {
+const CATEGORY_META = {
+  presentation: {
+    icon: Presentation,
+    colorClass: "text-orange-600 dark:text-orange-400",
+    bgClass: "bg-orange-50 dark:bg-orange-950/30",
+    borderClass: "hover:border-orange-300 hover:shadow-orange-500/5 dark:hover:border-orange-800",
+  },
+  manual: {
+    icon: BookOpen,
+    colorClass: "text-blue-600 dark:text-blue-400",
+    bgClass: "bg-blue-50 dark:bg-blue-950/30",
+    borderClass: "hover:border-blue-300 hover:shadow-blue-500/5 dark:hover:border-blue-800",
+  },
+  schema: {
+    icon: Network,
+    colorClass: "text-emerald-600 dark:text-emerald-400",
+    bgClass: "bg-emerald-50 dark:bg-emerald-950/30",
+    borderClass: "hover:border-emerald-300 hover:shadow-emerald-500/5 dark:hover:border-emerald-800",
+  },
+  template: {
+    icon: Layers,
+    colorClass: "text-purple-600 dark:text-purple-400",
+    bgClass: "bg-purple-50 dark:bg-purple-950/30",
+    borderClass: "hover:border-purple-300 hover:shadow-purple-500/5 dark:hover:border-purple-800",
+  },
+  material: {
     icon: FileText,
     colorClass: "text-slate-600 dark:text-slate-400",
     bgClass: "bg-slate-50 dark:bg-slate-900/40",
     borderClass: "hover:border-slate-300 hover:shadow-slate-500/5 dark:hover:border-slate-800",
-  };
+  },
+};
+
+function getCategoryMeta(category: string) {
+  return CATEGORY_META[category as keyof typeof CATEGORY_META] || CATEGORY_META.material;
 }
 
 function formatBytes(bytes: number) {
@@ -289,7 +278,7 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
   return (
     <div className="grid gap-3 sm:grid-cols-1 md:grid-cols-2">
       {files.map((file) => {
-        const meta = getFileMeta(file.fileName);
+        const meta = getCategoryMeta(file.category);
         const Icon = meta.icon;
         const isDownloading = downloading === file.id;
         const ext = file.fileName.split(".").pop()?.toUpperCase() || "FILE";
@@ -307,23 +296,6 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
               >
                 <Icon className={`h-5 w-5 ${meta.colorClass}`} />
               </div>
-              <span
-                className={`absolute -bottom-1 -right-1 px-1.5 py-px text-[8px] font-bold rounded shadow-sm border border-background text-white select-none ${
-                  ext === "PDF"
-                    ? "bg-red-500"
-                    : ext === "PPTX" || ext === "PPT"
-                      ? "bg-orange-500"
-                      : ext === "DOCX" || ext === "DOC"
-                        ? "bg-blue-500"
-                        : ext === "XLSX" || ext === "XLS"
-                          ? "bg-emerald-500"
-                          : ext === "ZIP" || ext === "RAR"
-                            ? "bg-purple-500"
-                            : "bg-slate-500"
-                }`}
-              >
-                {ext}
-              </span>
             </div>
 
             {/* Label + meta */}
@@ -337,7 +309,7 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
                     CATEGORY_COLORS[file.category] || CATEGORY_COLORS.material
                   }`}
                 >
-                  {CATEGORY_LABELS[file.category] || file.category}
+                  {ext}
                 </span>
                 {!file.isPublished && (
                   <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 ring-1 ring-amber-200 text-[10px] font-bold uppercase tracking-wider dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-900/30">

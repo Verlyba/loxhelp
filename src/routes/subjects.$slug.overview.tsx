@@ -86,22 +86,26 @@ function OverviewPage() {
         <p className="text-muted-foreground">Zatím žádné zadané úkoly.</p>
       ) : (
         <div className="surface-card overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
-            <thead className="border-b border-border text-left text-muted-foreground">
+          <table className="w-full min-w-[720px] text-sm border-collapse">
+            <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="sticky left-0 bg-surface px-4 py-3 font-medium text-foreground">
-                  Student
+                <th className="sticky left-0 bg-surface px-4 py-3 border-b border-border font-semibold text-left">
+                  <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Student</span>
+                  <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Jméno a karta</span>
                 </th>
-                <th className="px-3 py-3 font-medium text-foreground">Skupina</th>
+                <th className="px-3 py-3 border-b border-border font-semibold text-left">
+                  <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Skupina</span>
+                  <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Tým / Dvojice</span>
+                </th>
                 {data.assignments.map((a) => (
-                  <th key={a.id} className="px-3 py-3 font-medium text-foreground">
+                  <th key={a.id} className="px-3 py-3 border-b border-border font-semibold text-left min-w-32">
                     <Link
                       to="/subjects/$slug/assignments/$aid"
                       params={{ slug, aid: a.id }}
-                      className="block max-w-36 hover:underline"
+                      className="block max-w-36 hover:text-subject group"
                     >
-                      <span className="block truncate">{a.title}</span>
-                      <span className="block text-[11px] font-normal text-muted-foreground">
+                      <span className="block truncate text-foreground font-bold tracking-normal normal-case text-xs group-hover:text-subject transition-colors">{a.title}</span>
+                      <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
                         {TARGET_LABEL[a.targetType]} · {formatDate(a.dueAt)}
                       </span>
                     </Link>
@@ -109,10 +113,10 @@ function OverviewPage() {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
+            <tbody className="divide-y divide-border/60">
               {data.rows.map((row) => (
-                <tr key={row.studentId} className="hover:bg-accent/45 transition-colors">
-                  <td className="sticky left-0 bg-surface px-4 py-2.5 font-medium text-foreground">
+                <tr key={row.studentId} className="hover:bg-accent/40 transition-colors">
+                  <td className="sticky left-0 bg-surface px-4 py-3 font-semibold text-foreground border-b border-border/40">
                     <Link
                       to="/subjects/$slug/students/$sid"
                       params={{ slug, sid: row.studentId }}
@@ -122,7 +126,7 @@ function OverviewPage() {
                       {row.name}
                     </Link>
                   </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                  <td className="px-3 py-3 text-xs text-muted-foreground border-b border-border/40">
                     {row.studyGroup ?? "—"}
                     {row.pair && <span className="block font-medium mt-0.5">{row.pair}</span>}
                   </td>
@@ -137,7 +141,7 @@ function OverviewPage() {
                             setSelectedCell({ row, a, cell });
                           }
                         }}
-                        className={`px-3 py-2.5 select-none ${
+                        className={`px-3 py-3 select-none border-b border-border/40 ${
                           active
                             ? "cursor-pointer hover:bg-muted/70 transition-colors focus-within:ring-2 focus-within:ring-subject/20"
                             : ""
@@ -213,7 +217,7 @@ function Cell({ cell }: { cell: OverviewCell | undefined }) {
         </span>
       )}
       {cell.grade && (
-        <span className="rounded-full bg-subject-soft px-1.5 py-0.5 text-[11px] font-bold ring-1 ring-subject/30">
+        <span className="inline-flex items-center justify-center h-5 w-5 rounded bg-subject-soft text-[10px] font-extrabold text-subject ring-1 ring-subject/20">
           {cell.grade}
         </span>
       )}

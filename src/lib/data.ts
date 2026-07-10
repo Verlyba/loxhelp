@@ -68,6 +68,7 @@ type SubjectWithMeta = {
   name: string;
   slug: string;
   description: string;
+  imageUrl: string | null;
   themeStyle: string;
   classId: string;
   class: { name: string; schoolYear: string };
@@ -86,11 +87,19 @@ function toSubjectCard(s: SubjectWithMeta): SubjectCard {
     assignmentCount: s._count.assignments,
     studentCount: s._count.enrollments,
     classId: s.classId,
+    imageUrl: s.imageUrl,
   };
 }
 
 const subjectCardArgs = {
-  include: {
+  select: {
+    id: true,
+    name: true,
+    slug: true,
+    description: true,
+    imageUrl: true,
+    themeStyle: true,
+    classId: true,
     class: { select: { name: true, schoolYear: true } },
     _count: { select: { assignments: true, enrollments: true } },
   },

@@ -377,6 +377,7 @@ export const createSubject = createServerFn({ method: "POST" })
       .object({
         name: z.string().min(1),
         description: z.string().default(""),
+        imageUrl: z.string().nullable().optional(),
         themeStyle: z.enum(["loxone", "cad3d", "default"]),
         classId: z.string().min(1),
         teacherId: z.string().nullable().optional(),
@@ -395,6 +396,7 @@ export const createSubject = createServerFn({ method: "POST" })
       data: {
         name: data.name,
         description: data.description,
+        imageUrl: data.imageUrl || null,
         themeStyle: data.themeStyle,
         classId: data.classId,
         teacherId: data.teacherId || null,
@@ -956,6 +958,7 @@ export const updateSubject = createServerFn({ method: "POST" })
         id: z.string().min(1),
         name: z.string().min(1),
         description: z.string().default(""),
+        imageUrl: z.string().nullable().optional(),
         themeStyle: z.enum(["loxone", "cad3d", "default"]),
         classId: z.string().min(1).optional(),
         teacherId: z.string().nullable().optional(),
@@ -969,6 +972,7 @@ export const updateSubject = createServerFn({ method: "POST" })
       data: {
         name: data.name,
         description: data.description,
+        imageUrl: data.imageUrl !== undefined ? data.imageUrl : undefined,
         themeStyle: data.themeStyle,
         classId: data.classId,
         teacherId: data.teacherId || null,

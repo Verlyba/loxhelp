@@ -120,28 +120,41 @@ function StudentProfilePage() {
           <ChevronLeft className="h-4 w-4" /> Zpět na správu
         </Link>
 
-        {/* Identity strip */}
-        <div className="surface-card flex flex-wrap items-center gap-4 p-5">
-          <span className="grid h-14 w-14 place-items-center rounded-full bg-subject text-lg font-bold text-[color:var(--subject-foreground)]">
-            {initials}
-          </span>
-          <div className="min-w-0">
-            <p className="font-display text-lg font-semibold">{data.student.name}</p>
-            <p className="text-sm text-muted-foreground">
-              Třída:{" "}
-              {data.student.className ? (
-                <Link to="/classes" className="font-medium text-foreground hover:underline">
-                  {data.student.className}
-                </Link>
-              ) : (
-                "bez třídy"
-              )}
-            </p>
+        {/* Premium Profile Card */}
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-surface shadow-soft">
+          {/* Visual Header Banner */}
+          <div className="h-24 w-full bg-gradient-to-r from-subject/30 via-subject/20 to-subject/5 relative">
+            <div className="subject-grid-bg absolute inset-0 opacity-35" />
           </div>
-          <div className="ml-auto grid grid-cols-3 gap-3 text-center">
-            <Mini label="Nahraných verzí" value={String(data.stats.totalUploads)} icon={Upload} />
-            <Mini label="Známek" value={String(data.stats.gradedCount)} icon={GraduationCap} />
-            <Mini label="Průměr" value={data.stats.avgGrade ?? "—"} icon={GraduationCap} />
+          
+          {/* Main Card Content */}
+          <div className="px-6 pb-6 pt-0 relative flex flex-col md:flex-row md:items-end justify-between gap-5 -mt-10">
+            <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
+              {/* Circular Avatar overlapping the banner */}
+              <span className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-subject text-2xl font-extrabold text-[color:var(--subject-foreground)] border-4 border-surface shadow-md select-none">
+                {initials}
+              </span>
+              <div className="min-w-0 pb-1">
+                <p className="font-display text-xl font-extrabold text-foreground leading-tight">{data.student.name}</p>
+                <p className="text-sm text-muted-foreground mt-1 font-medium">
+                  Třída:{" "}
+                  {data.student.className ? (
+                    <Link to="/classes" className="font-semibold text-foreground hover:text-subject hover:underline">
+                      {data.student.className}
+                    </Link>
+                  ) : (
+                    <span className="italic">bez třídy</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Stats widgets */}
+            <div className="grid grid-cols-3 gap-3 text-center self-center sm:self-auto min-w-[240px]">
+              <Mini label="Nahraných" value={String(data.stats.totalUploads)} icon={Upload} />
+              <Mini label="Známek" value={String(data.stats.gradedCount)} icon={GraduationCap} />
+              <Mini label="Průměr" value={data.stats.avgGrade ?? "—"} icon={GraduationCap} />
+            </div>
           </div>
         </div>
 
@@ -205,11 +218,12 @@ function StudentProfilePage() {
 
 function Mini({ label, value, icon: Icon }: { label: string; value: string; icon: typeof Upload }) {
   return (
-    <div className="min-w-20">
-      <p className="flex items-center justify-center gap-1 font-display text-xl font-semibold">
-        <Icon className="h-4 w-4 text-subject" /> {value}
-      </p>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
+    <div className="bg-muted/30 border border-border/50 rounded-xl p-2.5 min-w-20 flex flex-col items-center justify-center shadow-sm">
+      <div className="flex items-center gap-1 text-subject">
+        <Icon className="h-3.5 w-3.5" />
+        <span className="font-display text-base font-extrabold leading-none">{value}</span>
+      </div>
+      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-1 text-center select-none leading-tight">{label}</span>
     </div>
   );
 }

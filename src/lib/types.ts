@@ -34,6 +34,7 @@ export interface SubjectCard {
   assignmentCount: number;
   studentCount: number;
   classId?: string;
+  imageUrl?: string | null;
 }
 
 export interface ActivityItem {

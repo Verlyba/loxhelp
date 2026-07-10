@@ -59,9 +59,19 @@ function SubjectLayout() {
       data-subject-theme={subject.theme}
       className="min-h-[calc(100vh-3.5rem)] bg-background text-foreground"
     >
-      {/* Compact hero */}
-      <div className="subject-hero border-b border-border">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-7">
+      {/* Compact hero with optional image banner */}
+      <div className="subject-hero border-b border-border relative overflow-hidden bg-muted">
+        {subject.imageUrl ? (
+          <>
+            <div className="absolute inset-0 bg-cover bg-center opacity-25" style={{ backgroundImage: `url(${subject.imageUrl})` }} />
+            <div className="absolute inset-0 bg-gradient-to-r from-background via-background/90 to-transparent" />
+          </>
+        ) : (
+          <div className="absolute inset-0 bg-gradient-to-r from-subject/10 to-subject/5" />
+        )}
+        <div className="subject-grid-bg absolute inset-0 opacity-40 pointer-events-none" />
+
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-7 relative z-10">
           <Link
             to="/subjects"
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
@@ -133,6 +143,14 @@ function SubjectLayout() {
   );
 }
 
+const COVER_PRESETS = [
+  { name: "Chytrý dům (Loxone)", url: "https://images.unsplash.com/photo-1558002038-1055907df827?auto=format&fit=crop&w=600&q=80" },
+  { name: "3D CAD & Engineering", url: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80" },
+  { name: "Programování & Web", url: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=600&q=80" },
+  { name: "Počítačové sítě", url: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=600&q=80" },
+  { name: "Technologie & Studium", url: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80" }
+];
+
 function EditSubjectModal({
   isOpen,
   onClose,
@@ -149,6 +167,7 @@ function EditSubjectModal({
 
   const [name, setName] = useState(subject.name);
   const [description, setDescription] = useState(subject.description || "");
+  const [imageUrl, setImageUrl] = useState(subject.imageUrl || "");
   const [themeStyle, setThemeStyle] = useState<"loxone" | "cad3d" | "default">(
     subject.theme === "loxone" || subject.theme === "cad3d" ? subject.theme : "default",
   );
@@ -165,6 +184,7 @@ function EditSubjectModal({
           id: subject.id,
           name,
           description,
+          imageUrl: imageUrl || null,
           themeStyle,
         },
       });
@@ -185,6 +205,7 @@ function EditSubjectModal({
       danger: true,
     });
     if (!ok) return;
+    busy;
     setBusy(true);
     try {
       await del({ data: subject.id });
@@ -206,13 +227,13 @@ function EditSubjectModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground"
+            className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
         </header>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           <label className="block text-xs font-semibold text-muted-foreground">
             Název předmětu
             <input
@@ -235,6 +256,37 @@ function EditSubjectModal({
           </label>
 
           <label className="block text-xs font-semibold text-muted-foreground">
+            Obrázek (URL)
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://example.com/image.jpg (nepovinné)"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            />
+          </label>
+
+          {/* Presets Grid */}
+          <div className="text-xs font-semibold text-muted-foreground">
+            Předvolby obrázků
+            <div className="mt-1.5 grid grid-cols-5 gap-1.5">
+              {COVER_PRESETS.map((preset) => (
+                <button
+                  key={preset.url}
+                  type="button"
+                  onClick={() => setImageUrl(preset.url)}
+                  className={`relative aspect-video overflow-hidden rounded-md border-2 bg-muted transition-all cursor-pointer ${
+                    imageUrl === preset.url ? "border-primary scale-95 shadow-sm" : "border-transparent hover:border-muted-foreground/30"
+                  }`}
+                  title={preset.name}
+                >
+                  <img src={preset.url} alt={preset.name} className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <label className="block text-xs font-semibold text-muted-foreground">
             Styl a motiv kurzu
             <select
               value={themeStyle}
@@ -254,7 +306,7 @@ function EditSubjectModal({
               type="button"
               onClick={handleDelete}
               disabled={busy}
-              className="px-4 py-2 rounded-lg border border-red-200 text-sm font-medium hover:bg-red-100 text-red-700 bg-red-50 disabled:opacity-60"
+              className="px-4 py-2 rounded-lg border border-red-200 text-sm font-medium hover:bg-red-100 text-red-700 bg-red-50 disabled:opacity-60 cursor-pointer"
             >
               {busy ? "Mažu..." : "Smazat předmět"}
             </button>
@@ -262,14 +314,14 @@ function EditSubjectModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted text-muted-foreground hover:text-foreground bg-surface"
+                className="px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-muted text-muted-foreground hover:text-foreground bg-surface cursor-pointer"
               >
                 Storno
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="subject-button px-4 py-2 rounded-lg text-sm font-semibold shadow"
+                className="subject-button px-4 py-2 rounded-lg text-sm font-semibold shadow cursor-pointer"
               >
                 {busy ? "Ukládám..." : "Uložit změny"}
               </button>

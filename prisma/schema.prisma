@@ -121,6 +121,7 @@ model Subject {
   name        String // e.g. "Loxone Automation"
   slug        String  @unique // URL: /subjects/loxone
   description String  @default("")
+  imageUrl    String?
   themeStyle  String  @default("default") // loxone | cad3d | default
   classId     String
   class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)

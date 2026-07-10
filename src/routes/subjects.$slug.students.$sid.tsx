@@ -10,6 +10,10 @@ import {
   KeyRound,
   X,
   Check,
+  Clock,
+  Upload,
+  GraduationCap,
+  FileText,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getStudentCard } from "@/lib/data";
@@ -128,51 +132,72 @@ function StudentCardPage() {
         </div>
       </div>
 
-      {/* Identity */}
-      <header className="flex flex-wrap items-center gap-4">
-        <span className="grid h-14 w-14 place-items-center rounded-full bg-subject text-lg font-bold text-[color:var(--subject-foreground)]">
-          {initials}
-        </span>
-        <div className="min-w-0">
-          <h2 className="font-display text-2xl font-semibold">{data.student.name}</h2>
-          <p className="text-sm text-muted-foreground">
-            {data.student.email}
-            {data.student.className && (
-              <>
-                {" · "}
-                třída{" "}
-                <Link to="/classes" className="hover:underline font-semibold text-foreground">
-                  {data.student.className}
-                </Link>
-              </>
+      {/* Premium Profile Card */}
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-surface shadow-soft">
+        {/* Visual Header Banner */}
+        <div className="h-24 w-full bg-gradient-to-r from-subject/30 via-subject/20 to-subject/5 relative">
+          <div className="subject-grid-bg absolute inset-0 opacity-35" />
+          
+          {/* Metadata badges inside banner */}
+          <div className="absolute top-3 right-3 flex flex-wrap gap-1.5 text-xs">
+            {data.studyGroup && (
+              <Link
+                to="/subjects/$slug/groups"
+                params={{ slug }}
+                className="inline-flex items-center gap-1 rounded-full bg-surface/85 backdrop-blur-md px-2.5 py-1 font-bold text-subject hover:opacity-90 shadow-sm border border-subject/10"
+              >
+                <Users2 className="h-3 w-3" /> Skupina {data.studyGroup}
+              </Link>
             )}
-          </p>
+            {data.pair && (
+              <span
+                className="rounded-full bg-surface/85 backdrop-blur-md px-2.5 py-1 text-[11px] font-semibold text-muted-foreground shadow-sm border border-border/50"
+                title={
+                  data.pair.partnerNames.length
+                    ? `Partneři: ${data.pair.partnerNames.join(", ")}`
+                    : undefined
+                }
+              >
+                {data.pair.name}
+                {data.pair.partnerNames.length > 0 && ` · s ${data.pair.partnerNames.join(", ")}`}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="ml-auto flex flex-wrap gap-1.5 text-xs">
-          {data.studyGroup && (
-            <Link
-              to="/subjects/$slug/groups"
-              params={{ slug }}
-              className="inline-flex items-center gap-1 rounded-full bg-subject-soft px-2.5 py-1 font-medium ring-1 ring-subject/30 hover:opacity-85"
-            >
-              <Users2 className="h-3.5 w-3.5 text-subject" /> {data.studyGroup}
-            </Link>
-          )}
-          {data.pair && (
-            <span
-              className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground"
-              title={
-                data.pair.partnerNames.length
-                  ? `S: ${data.pair.partnerNames.join(", ")}`
-                  : undefined
-              }
-            >
-              {data.pair.name}
-              {data.pair.partnerNames.length > 0 && ` · s ${data.pair.partnerNames.join(", ")}`}
+        
+        {/* Main Card Content */}
+        <div className="px-6 pb-6 pt-0 relative flex flex-col lg:flex-row lg:items-end justify-between gap-5 -mt-10">
+          <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
+            {/* Circular Avatar overlapping the banner */}
+            <span className="grid h-20 w-20 shrink-0 place-items-center rounded-full bg-subject text-2xl font-extrabold text-[color:var(--subject-foreground)] border-4 border-surface shadow-md select-none">
+              {initials}
             </span>
-          )}
+            <div className="min-w-0 pb-1">
+              <h2 className="font-display text-xl font-extrabold text-foreground leading-tight">{data.student.name}</h2>
+              <p className="text-sm text-muted-foreground mt-1 font-medium">
+                {data.student.email}
+                {data.student.className && (
+                  <>
+                    {" · "}
+                    třída{" "}
+                    <Link to="/classes" className="hover:text-subject hover:underline font-semibold text-foreground">
+                      {data.student.className}
+                    </Link>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Stats widgets */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center self-center lg:self-auto min-w-[280px] sm:min-w-[480px]">
+            <Mini label="Odevzdáno" value={`${data.stats.submitted}/${data.stats.total}`} icon={Upload} />
+            <Mini label="Průměr" value={data.stats.avgGrade ?? "—"} icon={GraduationCap} />
+            <Mini label="Včasnost" value={data.stats.onTimeRate !== null ? `${data.stats.onTimeRate} %` : "—"} icon={Clock} />
+            <Mini label="Verze" value={String(data.stats.totalUploads)} icon={FileText} />
+          </div>
         </div>
-      </header>
+      </div>
 
       {showEditModal && (
         <EditStudentModal
@@ -182,36 +207,35 @@ function StudentCardPage() {
         />
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Odevzdáno" value={`${data.stats.submitted}/${data.stats.total}`} />
-        <Stat label="Průměr známek" value={data.stats.avgGrade ?? "—"} />
-        <Stat
-          label="Včas odevzdané"
-          value={data.stats.onTimeRate !== null ? `${data.stats.onTimeRate} %` : "—"}
-        />
-        <Stat label="Nahraných verzí" value={String(data.stats.totalUploads)} />
-      </div>
-
       {/* Per-assignment report */}
       <div className="surface-card overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+        <table className="w-full min-w-[640px] text-sm border-collapse">
+          <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
-              <th className="px-4 py-3 font-medium">Úkol</th>
-              <th className="px-3 py-3 font-medium">Stav</th>
-              <th className="px-3 py-3 font-medium">Odevzdáno</th>
-              <th
-                className="px-3 py-3 text-center font-medium"
-                title="Verze nahrané tímto studentem / celkem za jednotku"
-              >
-                Verze
+              <th className="px-4 py-3 font-medium border-b border-border bg-muted/10 text-left">
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Úkol</span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Název a termín</span>
               </th>
-              <th className="px-3 py-3 text-center font-medium">Známka</th>
-              <th className="w-10 px-3 py-3" />
+              <th className="px-3 py-3 font-medium border-b border-border bg-muted/10 text-left">
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Stav</span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Fáze úkolu</span>
+              </th>
+              <th className="px-3 py-3 font-medium border-b border-border bg-muted/10 text-left">
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Odevzdáno</span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Poslední nahrání</span>
+              </th>
+              <th className="px-3 py-3 text-center font-medium border-b border-border bg-muted/10">
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Verze</span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5" title="Verze studenta / celkem za jednotku">Moje / Celkem</span>
+              </th>
+              <th className="px-3 py-3 text-center font-medium border-b border-border bg-muted/10">
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Známka</span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Klasifikace</span>
+              </th>
+              <th className="w-10 px-3 py-3 border-b border-border bg-muted/10" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-border/60">
             {data.rows.map((r) => (
               <Row key={r.assignmentId} row={r} slug={slug} />
             ))}
@@ -246,11 +270,14 @@ function StudentCardPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Mini({ label, value, icon: Icon }: { label: string; value: string; icon: any }) {
   return (
-    <div className="surface-card p-4 text-center">
-      <p className="font-display text-2xl font-semibold">{value}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+    <div className="bg-muted/30 border border-border/50 rounded-xl p-2 flex flex-col items-center justify-center shadow-sm">
+      <div className="flex items-center gap-1 text-subject">
+        <Icon className="h-3.5 w-3.5" />
+        <span className="font-display text-xs font-extrabold leading-none">{value}</span>
+      </div>
+      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-1 text-center select-none leading-tight">{label}</span>
     </div>
   );
 }
@@ -275,11 +302,11 @@ function Row({ row, slug }: { row: StudentCardRow; slug: string }) {
 
   return (
     <tr className="transition-colors hover:bg-accent/40">
-      <td className="px-4 py-2.5">
+      <td className="px-4 py-3">
         <Link
           to="/subjects/$slug/assignments/$aid"
           params={{ slug, aid: row.assignmentId }}
-          className="font-medium hover:underline"
+          className="font-semibold text-foreground hover:text-subject hover:underline block"
         >
           {row.title}
         </Link>
@@ -287,24 +314,24 @@ function Row({ row, slug }: { row: StudentCardRow; slug: string }) {
           {TARGET_LABEL[row.targetType]} · termín {formatDate(row.dueAt)}
         </span>
       </td>
-      <td className="px-3 py-2.5">{statusChip}</td>
-      <td className="px-3 py-2.5 text-xs text-muted-foreground">
+      <td className="px-3 py-3">{statusChip}</td>
+      <td className="px-3 py-3 text-xs text-muted-foreground">
         {row.submittedAt ? formatDateTime(row.submittedAt) : "—"}
       </td>
-      <td className="px-3 py-2.5 text-center text-xs">
-        <span className="font-semibold">{row.myUploads}</span>
+      <td className="px-3 py-3 text-center text-xs">
+        <span className="font-semibold text-foreground">{row.myUploads}</span>
         <span className="text-muted-foreground"> / {row.versions}</span>
       </td>
-      <td className="px-3 py-2.5 text-center">
+      <td className="px-3 py-3 text-center">
         {row.grade ? (
-          <span className="inline-flex rounded-full bg-subject-soft px-2.5 py-0.5 text-sm font-bold ring-1 ring-subject/30">
+          <span className="inline-flex items-center justify-center h-7 w-7 rounded-lg bg-subject-soft text-xs font-extrabold text-subject ring-1 ring-subject/20">
             {row.grade}
           </span>
         ) : (
-          <span className="text-muted-foreground">—</span>
+          <span className="text-muted-foreground text-xs">—</span>
         )}
       </td>
-      <td className="px-3 py-2.5 text-center">
+      <td className="px-3 py-3 text-center">
         {row.feedback && (
           <span title={row.feedback} className="inline-block cursor-help text-subject">
             <MessageSquareText className="h-4 w-4" />
