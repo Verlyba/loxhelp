@@ -225,7 +225,8 @@ const CATEGORY_META = {
     icon: Network,
     colorClass: "text-emerald-600 dark:text-emerald-400",
     bgClass: "bg-emerald-50 dark:bg-emerald-950/30",
-    borderClass: "hover:border-emerald-300 hover:shadow-emerald-500/5 dark:hover:border-emerald-800",
+    borderClass:
+      "hover:border-emerald-300 hover:shadow-emerald-500/5 dark:hover:border-emerald-800",
   },
   template: {
     icon: Layers,
@@ -253,7 +254,7 @@ function formatBytes(bytes: number) {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
-function FileGrid({ files }: { files: SubjectFileItem[] }) {
+export function FileGrid({ files }: { files: SubjectFileItem[] }) {
   const download = useServerFn(downloadCourseFile);
   const [downloading, setDownloading] = useState<string | null>(null);
 
@@ -287,12 +288,12 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
           <div
             key={file.id}
             onClick={() => !isDownloading && handleDownload(file.id)}
-            className="group flex items-center gap-3.5 rounded-xl border border-border/80 bg-surface/50 p-3.5 shadow-sm transition-all duration-200 cursor-pointer hover:shadow-md hover:border-subject/40"
+            className={`group flex items-center gap-3.5 rounded-xl border border-border/80 bg-surface/50 p-3.5 shadow-sm transition-all duration-300 cursor-pointer hover:shadow-md ${meta.borderClass}`}
           >
             {/* File Icon */}
             <div className="relative shrink-0">
               <div
-                className={`grid h-11 w-11 place-items-center rounded-lg transition-transform duration-200 group-hover:scale-105 ${meta.bgClass}`}
+                className={`grid h-11 w-11 place-items-center rounded-xl transition-transform duration-300 group-hover:scale-105 ring-1 ring-black/5 dark:ring-white/10 ${meta.bgClass}`}
               >
                 <Icon className={`h-5 w-5 ${meta.colorClass}`} />
               </div>
@@ -323,12 +324,12 @@ function FileGrid({ files }: { files: SubjectFileItem[] }) {
             <button
               type="button"
               disabled={isDownloading}
-              className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-subject text-subject-foreground transition-all group-hover:brightness-105"
+              className="shrink-0 h-9 w-9 inline-flex items-center justify-center rounded-full bg-muted/50 text-muted-foreground transition-all duration-300 group-hover:bg-subject group-hover:text-subject-foreground group-hover:scale-105 group-hover:shadow-sm"
             >
               {isDownloading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <FileDown className="h-3.5 w-3.5" />
+                <FileDown className="h-4 w-4 transition-transform duration-300 group-hover:-translate-y-0.5" />
               )}
             </button>
           </div>
