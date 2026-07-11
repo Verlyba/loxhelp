@@ -1,6 +1,6 @@
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   FileQuestion,
   Plus,
@@ -11,31 +11,63 @@ import {
   BookOpen,
   ArrowLeft,
   X,
+  Upload,
+  Settings2,
+  FileSpreadsheet,
+  Users2,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getTestsList } from "@/lib/test-data";
 import { createTest, deleteTest } from "@/lib/test-actions";
+import { getMoodleTests, getGradingSettings } from "@/lib/data";
+import { importMoodleTest, deleteMoodleTest, updateGradingSettings } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import type { GradingSettingsView, MoodleTestSummary } from "@/lib/types";
 
 export const Route = createFileRoute("/subjects/$slug/tests")({
   beforeLoad: ({ context }) => {
     requireUser(context.user);
   },
-  loader: ({ params }) => getTestsList({ data: params.slug }),
+  loader: async ({ params }) => {
+    const testsData = await getTestsList({ data: params.slug });
+    const staffOnly = {
+      moodleTests: [] as MoodleTestSummary[],
+      gradingSettings: null as GradingSettingsView | null,
+    };
+    try {
+      const [moodleTests, gradingSettings] = await Promise.all([
+        getMoodleTests({ data: testsData.subjectId }),
+        getGradingSettings({ data: testsData.subjectId }),
+      ]);
+      staffOnly.moodleTests = moodleTests;
+      staffOnly.gradingSettings = gradingSettings;
+    } catch {
+      // student — the two calls above require staff, silently skip
+    }
+    return { ...testsData, ...staffOnly };
+  },
   component: TestsListPage,
 });
 
 function TestsListPage() {
   const { slug } = Route.useParams();
-  const { subjectName, tests, subjectId } = Route.useLoaderData();
+  const { subjectName, tests, subjectId, moodleTests, gradingSettings } = Route.useLoaderData();
   const user = useUser();
   const staff = !!user && isStaff(user.role);
 
+  // This route also parents /tests/$tid and /tests/moodle/$mtid — those are
+  // full detail pages, not children shown alongside the list, so only render
+  // the list here when this route is the exact match; otherwise just outlet.
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isListView = pathname === `/subjects/${slug}/tests`;
+
+  if (!isListView) return <Outlet />;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="font-display text-2xl font-semibold tracking-tight text-foreground">
@@ -45,7 +77,13 @@ function TestsListPage() {
             Přehled vědomostních testů pro předmět {subjectName}.
           </p>
         </div>
-        {staff && <CreateTestModal subjectId={subjectId} />}
+        <div className="flex flex-wrap items-center gap-2">
+          {staff && gradingSettings && (
+            <GradingSettingsModal subjectId={subjectId} settings={gradingSettings} />
+          )}
+          {staff && <ImportMoodleModal subjectId={subjectId} />}
+          {staff && <CreateTestModal subjectId={subjectId} />}
+        </div>
       </header>
 
       {tests.length === 0 ? (
@@ -65,7 +103,365 @@ function TestsListPage() {
           ))}
         </div>
       )}
+
+      {staff && (
+        <section>
+          <h3 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold text-foreground">
+            <FileSpreadsheet className="h-5 w-5 text-subject" /> Importované testy z Moodle
+          </h3>
+          {moodleTests.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
+              Zatím nebyl importován žádný soubor s výsledky.
+            </p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {moodleTests.map((t) => (
+                <MoodleTestCard key={t.id} test={t} slug={slug} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
+  );
+}
+
+function MoodleTestCard({ test, slug }: { test: MoodleTestSummary; slug: string }) {
+  const router = useRouter();
+  const del = useServerFn(deleteMoodleTest);
+  const { confirm } = useDialog();
+  const [busy, setBusy] = useState(false);
+
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = await confirm({
+      title: `Smazat import „${test.title}“?`,
+      message: "Smažou se všechny naimportované výsledky tohoto testu. Akce je nevratná.",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await del({ data: test.id });
+      toast.success("Import byl smazán.");
+      await router.invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Smazání selhalo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Link
+      to="/subjects/$slug/tests/moodle/$mtid"
+      params={{ slug, mtid: test.id }}
+      className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-surface p-4 transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-subject/40"
+    >
+      <div className="min-w-0">
+        <h4 className="font-display font-semibold text-sm text-foreground group-hover:text-subject transition-colors truncate">
+          {test.title}
+        </h4>
+        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Users2 className="h-3 w-3" /> {test.matchedCount}/{test.resultCount} přiřazeno
+          </span>
+          {test.avgGrade && <span>Ø {test.avgGrade}</span>}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          onClick={handleDelete}
+          disabled={busy}
+          aria-label="Smazat import"
+          className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-60 transition-colors"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+        <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-subject group-hover:translate-x-0.5 transition-all" />
+      </div>
+    </Link>
+  );
+}
+
+function GradingSettingsModal({
+  subjectId,
+  settings,
+}: {
+  subjectId: string;
+  settings: GradingSettingsView;
+}) {
+  const router = useRouter();
+  const update = useServerFn(updateGradingSettings);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(settings);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await update({ data: { subjectId, ...form } });
+      toast.success("Nastavení hodnocení bylo uloženo.");
+      setOpen(false);
+      await router.invalidate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Uložení selhalo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const numField = (key: keyof typeof form) => (
+    <input
+      type="number"
+      min={0}
+      max={100}
+      value={form[key] as number}
+      onChange={(e) => setForm({ ...form, [key]: Number(e.target.value) })}
+      className="w-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-center text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+    />
+  );
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+      >
+        <Settings2 className="h-4 w-4" /> Nastavení hodnocení
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm text-sm">
+          <form
+            onSubmit={submit}
+            className="w-full max-w-md rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
+          >
+            <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
+              <h3 className="font-display text-lg font-bold text-foreground">
+                Nastavení hodnocení
+              </h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Zavřít"
+                className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="grid gap-5 p-6">
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">
+                  Hranice pro automatické známkování importů z Moodle
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground/80">
+                  Minimální procento bodů pro danou známku (10 bodů = 100 %).
+                </p>
+                <div className="mt-2.5 grid grid-cols-4 gap-2">
+                  {(["grade1Min", "grade2Min", "grade3Min", "grade4Min"] as const).map((key, i) => (
+                    <label key={key} className="flex flex-col items-center gap-1">
+                      <span className="text-xs font-bold text-subject">{i + 1}</span>
+                      <div className="flex items-center gap-0.5">
+                        {numField(key)}
+                        <span className="text-xs text-muted-foreground">%</span>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Pod nejnižší hranicí se automaticky přidělí známka 5.
+                </p>
+              </div>
+
+              <div className="border-t border-border pt-4">
+                <label className="flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={form.latePenaltyEnabled}
+                    onChange={(e) => setForm({ ...form, latePenaltyEnabled: e.target.checked })}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">
+                      Penalizace za time management
+                    </span>
+                    <span className="block text-xs text-muted-foreground mt-0.5">
+                      Neodevzdané úkoly po termínu automaticky dostávají další „5“ za každý započatý
+                      týden prodlení — dokud nejsou odevzdané nebo oznámkované.
+                    </span>
+                  </span>
+                </label>
+                {form.latePenaltyEnabled && (
+                  <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+                    Váha jedné penalizační pětky
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={form.latePenaltyWeight}
+                      onChange={(e) =>
+                        setForm({ ...form, latePenaltyWeight: Number(e.target.value) })
+                      }
+                      className="w-20 rounded-md border border-input bg-background px-2 py-1.5 text-sm text-center text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                    />
+                  </label>
+                )}
+              </div>
+
+              {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+            </div>
+
+            <footer className="flex justify-end gap-3 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Storno
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="subject-button rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              >
+                {busy ? "Ukládám…" : "Uložit"}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
+    </>
+  );
+}
+
+function ImportMoodleModal({ subjectId }: { subjectId: string }) {
+  const router = useRouter();
+  const importFn = useServerFn(importMoodleTest);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setError("Vyberte soubor s výsledky (.csv nebo .json).");
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("subjectId", subjectId);
+      fd.set("title", title);
+      fd.set("file", file);
+      const res = await importFn({ data: fd });
+      toast.success(
+        `Import hotov: ${res.matched}/${res.total} studentů přiřazeno${
+          res.unmatched > 0 ? `, ${res.unmatched} nepřiřazeno` : ""
+        }.`,
+      );
+      setTitle("");
+      if (fileRef.current) fileRef.current.value = "";
+      setOpen(false);
+      await router.invalidate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Import se nezdařil.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent"
+      >
+        <Upload className="h-4 w-4" /> Import z Moodle
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm text-sm">
+          <form
+            onSubmit={submit}
+            className="w-full max-w-md rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
+          >
+            <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
+              <h3 className="font-display text-lg font-bold text-foreground">
+                Import výsledků z Moodle
+              </h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Zavřít"
+                className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <div className="grid gap-4 p-6">
+              <p className="text-xs text-muted-foreground">
+                Nahrajte export výsledků testu z Moodle (CSV nebo JSON — v exportu Moodle zvolte
+                „Hodnoty oddělené čárkou (.csv)“ nebo „Javascript Object Notation (.json)“).
+                Studenty systém přiřadí podle e-mailu, známka 1–5 se dopočítá podle nastavených
+                hranic.
+              </p>
+
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Název (nepovinné, jinak název souboru)
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Např. Základy, osvětlení, vytápění a stínění"
+                  className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+
+              <label className="block text-xs font-semibold text-muted-foreground">
+                Soubor s výsledky
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,.json"
+                  required
+                  className="mt-1.5 block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-subject file:px-3 file:py-2 file:text-sm file:font-medium file:text-[color:var(--subject-foreground)]"
+                />
+              </label>
+
+              {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+            </div>
+
+            <footer className="flex justify-end gap-3 border-t border-border px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Storno
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="subject-button rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
+              >
+                {busy ? "Importuji…" : "Importovat"}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
+    </>
   );
 }
 

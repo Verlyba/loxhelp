@@ -833,6 +833,7 @@ function GradeChip({ value }: { value: string }) {
 function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
   const { slug } = Route.useParams();
   const [grading, setGrading] = useState<UnitView | null>(null);
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const downloadAll = useServerFn(downloadAllSubmissionsZip);
   const [downloadingAll, setDownloadingAll] = useState(false);
 
@@ -849,11 +850,21 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
     }
   };
 
-  const submitted = assignment.units.filter((u) => u.versions.length > 0).length;
-  const graded = assignment.units.filter((u) => u.grade).length;
+  const groupNames = Array.from(
+    new Set(assignment.units.map((u) => u.studyGroupName).filter((g): g is string => !!g)),
+  ).sort((a, b) => a.localeCompare(b));
+  const units =
+    groupFilter === "all"
+      ? assignment.units
+      : assignment.units.filter((u) =>
+          groupFilter === "none" ? !u.studyGroupName : u.studyGroupName === groupFilter,
+        );
+
+  const submitted = units.filter((u) => u.versions.length > 0).length;
+  const graded = units.filter((u) => u.grade).length;
   const isIndividual = assignment.targetType === "INDIVIDUAL";
 
-  const unsubmittedUnits = assignment.units.filter((u) => u.versions.length === 0);
+  const unsubmittedUnits = units.filter((u) => u.versions.length === 0);
 
   return (
     <section className="mt-8 space-y-3">
@@ -862,12 +873,30 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
           <Users2 className="h-5 w-5 text-subject" /> Odevzdání a hodnocení
         </h2>
         <div className="flex items-center gap-3">
+          {groupNames.length > 0 && (
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              Skupina:
+              <select
+                value={groupFilter}
+                onChange={(e) => setGroupFilter(e.target.value)}
+                className="rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+              >
+                <option value="all">Všechny</option>
+                {groupNames.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+                <option value="none">Bez skupiny</option>
+              </select>
+            </label>
+          )}
           <div className="flex items-center gap-1.5 text-xs">
             <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
-              odevzdáno {submitted}/{assignment.units.length}
+              odevzdáno {submitted}/{units.length}
             </span>
             <span className="rounded-full bg-muted px-2.5 py-1 text-muted-foreground">
-              oznámkováno {graded}/{assignment.units.length}
+              oznámkováno {graded}/{units.length}
             </span>
           </div>
           <button
@@ -909,6 +938,10 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
         <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
           Žádné jednotky — zkontrolujte Skupiny a dvojice v levém panelu.
         </p>
+      ) : units.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          Žádné jednotky ve zvolené skupině.
+        </p>
       ) : (
         <div className="surface-card overflow-x-auto">
           <table className="w-full min-w-[680px] text-sm">
@@ -928,7 +961,7 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {assignment.units.map((u) => (
+              {units.map((u) => (
                 <UnitRow
                   key={u.key}
                   unit={u}
@@ -1196,6 +1229,32 @@ function UnitRow({
             userIds={unit.members.map((m) => m.id)}
             initial={unit.grade}
           />
+          {!unit.grade &&
+            !latest &&
+            new Date(unit.extension ?? assignment.dueAt).getTime() < Date.now() && (
+              <div className="relative mt-1.5 flex flex-col items-center gap-1">
+                <span className="text-xs font-bold text-red-500" title="Nehodnoceno — po termínu">
+                  N
+                </span>
+                {unit.latePenalties.length > 0 && (
+                  <details onClick={(e) => e.stopPropagation()}>
+                    <summary
+                      title="Penalizace za time management"
+                      className="inline-flex h-3.5 min-w-3.5 cursor-pointer list-none items-center justify-center rounded-full bg-red-100 px-1 text-[8px] font-bold text-red-700 ring-1 ring-red-200 select-none"
+                    >
+                      +{unit.latePenalties.length}×5
+                    </summary>
+                    <div className="absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded-md border border-red-200 bg-red-50 p-1.5 text-left text-[9px] text-red-800 shadow-md">
+                      {unit.latePenalties.map((p) => (
+                        <div key={p.weekIndex}>
+                          Týden {p.weekIndex}: 5 (váha {p.weight})
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
+            )}
         </td>
 
         {/* Actions */}

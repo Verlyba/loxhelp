@@ -14,6 +14,7 @@ import {
   Upload,
   GraduationCap,
   FileText,
+  type LucideIcon,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getStudentCard } from "@/lib/data";
@@ -137,7 +138,7 @@ function StudentCardPage() {
         {/* Visual Header Banner */}
         <div className="h-24 w-full bg-gradient-to-r from-subject/30 via-subject/20 to-subject/5 relative">
           <div className="subject-grid-bg absolute inset-0 opacity-35" />
-          
+
           {/* Metadata badges inside banner */}
           <div className="absolute top-3 right-3 flex flex-wrap gap-1.5 text-xs">
             {data.studyGroup && (
@@ -164,7 +165,7 @@ function StudentCardPage() {
             )}
           </div>
         </div>
-        
+
         {/* Main Card Content */}
         <div className="px-6 pb-6 pt-0 relative flex flex-col lg:flex-row lg:items-end justify-between gap-5 -mt-10">
           <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
@@ -173,14 +174,19 @@ function StudentCardPage() {
               {initials}
             </span>
             <div className="min-w-0 pb-1">
-              <h2 className="font-display text-xl font-extrabold text-foreground leading-tight">{data.student.name}</h2>
+              <h2 className="font-display text-xl font-extrabold text-foreground leading-tight">
+                {data.student.name}
+              </h2>
               <p className="text-sm text-muted-foreground mt-1 font-medium">
                 {data.student.email}
                 {data.student.className && (
                   <>
                     {" · "}
                     třída{" "}
-                    <Link to="/classes" className="hover:text-subject hover:underline font-semibold text-foreground">
+                    <Link
+                      to="/classes"
+                      className="hover:text-subject hover:underline font-semibold text-foreground"
+                    >
                       {data.student.className}
                     </Link>
                   </>
@@ -191,9 +197,17 @@ function StudentCardPage() {
 
           {/* Stats widgets */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center self-center lg:self-auto min-w-[280px] sm:min-w-[480px]">
-            <Mini label="Odevzdáno" value={`${data.stats.submitted}/${data.stats.total}`} icon={Upload} />
+            <Mini
+              label="Odevzdáno"
+              value={`${data.stats.submitted}/${data.stats.total}`}
+              icon={Upload}
+            />
             <Mini label="Průměr" value={data.stats.avgGrade ?? "—"} icon={GraduationCap} />
-            <Mini label="Včasnost" value={data.stats.onTimeRate !== null ? `${data.stats.onTimeRate} %` : "—"} icon={Clock} />
+            <Mini
+              label="Včasnost"
+              value={data.stats.onTimeRate !== null ? `${data.stats.onTimeRate} %` : "—"}
+              icon={Clock}
+            />
             <Mini label="Verze" value={String(data.stats.totalUploads)} icon={FileText} />
           </div>
         </div>
@@ -213,24 +227,47 @@ function StudentCardPage() {
           <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
               <th className="px-4 py-3 font-medium border-b border-border bg-muted/10 text-left">
-                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Úkol</span>
-                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Název a termín</span>
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                  Úkol
+                </span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                  Název a termín
+                </span>
               </th>
               <th className="px-3 py-3 font-medium border-b border-border bg-muted/10 text-left">
-                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Stav</span>
-                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Fáze úkolu</span>
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                  Stav
+                </span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                  Fáze úkolu
+                </span>
               </th>
               <th className="px-3 py-3 font-medium border-b border-border bg-muted/10 text-left">
-                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Odevzdáno</span>
-                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Poslední nahrání</span>
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                  Odevzdáno
+                </span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                  Poslední nahrání
+                </span>
               </th>
               <th className="px-3 py-3 text-center font-medium border-b border-border bg-muted/10">
-                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Verze</span>
-                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5" title="Verze studenta / celkem za jednotku">Moje / Celkem</span>
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                  Verze
+                </span>
+                <span
+                  className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5"
+                  title="Verze studenta / celkem za jednotku"
+                >
+                  Moje / Celkem
+                </span>
               </th>
               <th className="px-3 py-3 text-center font-medium border-b border-border bg-muted/10">
-                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Známka</span>
-                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Klasifikace</span>
+                <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                  Známka
+                </span>
+                <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                  Klasifikace
+                </span>
               </th>
               <th className="w-10 px-3 py-3 border-b border-border bg-muted/10" />
             </tr>
@@ -270,14 +307,16 @@ function StudentCardPage() {
   );
 }
 
-function Mini({ label, value, icon: Icon }: { label: string; value: string; icon: any }) {
+function Mini({ label, value, icon: Icon }: { label: string; value: string; icon: LucideIcon }) {
   return (
     <div className="bg-muted/30 border border-border/50 rounded-xl p-2 flex flex-col items-center justify-center shadow-sm">
       <div className="flex items-center gap-1 text-subject">
         <Icon className="h-3.5 w-3.5" />
         <span className="font-display text-xs font-extrabold leading-none">{value}</span>
       </div>
-      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-1 text-center select-none leading-tight">{label}</span>
+      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-1 text-center select-none leading-tight">
+        {label}
+      </span>
     </div>
   );
 }

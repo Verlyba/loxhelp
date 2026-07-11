@@ -8,7 +8,20 @@ import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { generatePairsInGroupCore } from "@/lib/pairing";
 import { isStaff, ROLES } from "@/lib/roles";
+import {
+  parseMoodleFile,
+  gradeFromPercentage,
+  matchStudent,
+  DEFAULT_GRADING_SETTINGS,
+} from "@/lib/moodle-import";
 import type { SessionUser, TargetType } from "@/lib/types";
+
+/** Reads a subject's grading settings, creating the row with defaults if missing. */
+async function getOrCreateGradingSettings(subjectId: string) {
+  const existing = await db.subjectGradingSettings.findUnique({ where: { subjectId } });
+  if (existing) return existing;
+  return db.subjectGradingSettings.create({ data: { subjectId, ...DEFAULT_GRADING_SETTINGS } });
+}
 
 export async function requireUser(): Promise<SessionUser> {
   const { getSessionUser } = await import("@/lib/session");
@@ -377,7 +390,8 @@ export const createSubject = createServerFn({ method: "POST" })
       .object({
         name: z.string().min(1),
         description: z.string().default(""),
-        imageUrl: z.string().nullable().optional(),
+        // plain URL or a compressed data: URL from the cover-upload picker
+        imageUrl: z.string().max(1_500_000).nullable().optional(),
         themeStyle: z.enum(["loxone", "cad3d", "default"]),
         classId: z.string().min(1),
         teacherId: z.string().nullable().optional(),
@@ -655,11 +669,28 @@ export const recordConsent = createServerFn({ method: "POST" })
 
 export const createStudyGroup = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
-    z.object({ subjectId: z.string().min(1), name: z.string().min(1) }).parse(d),
+    z
+      .object({
+        subjectId: z.string().min(1),
+        name: z.string().min(1),
+        memberIds: z.array(z.string().min(1)).optional(),
+      })
+      .parse(d),
   )
   .handler(async ({ data }) => {
     await requireStaff();
-    const created = await db.studyGroup.create({ data });
+    const memberIds = data.memberIds ?? [];
+    // Members must be enrolled in the subject before they can join a group.
+    for (const userId of memberIds) {
+      await db.enrollment.create({ data: { userId, subjectId: data.subjectId } }).catch(() => {}); // already enrolled — ignore
+    }
+    const created = await db.studyGroup.create({
+      data: {
+        subjectId: data.subjectId,
+        name: data.name,
+        members: { create: memberIds.map((userId) => ({ userId })) },
+      },
+    });
     return { id: created.id };
   });
 
@@ -958,7 +989,8 @@ export const updateSubject = createServerFn({ method: "POST" })
         id: z.string().min(1),
         name: z.string().min(1),
         description: z.string().default(""),
-        imageUrl: z.string().nullable().optional(),
+        // plain URL or a compressed data: URL from the cover-upload picker
+        imageUrl: z.string().max(1_500_000).nullable().optional(),
         themeStyle: z.enum(["loxone", "cad3d", "default"]),
         classId: z.string().min(1).optional(),
         teacherId: z.string().nullable().optional(),
@@ -986,6 +1018,27 @@ export const deleteSubject = createServerFn({ method: "POST" })
   .handler(async ({ data: id }) => {
     await requireStaff();
     await db.subject.delete({ where: { id } });
+    return { ok: true };
+  });
+
+/** Marks a course page as the currently taught topic ("aktivní látka"), or clears it (pageId: null). */
+export const setActiveTopic = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ subjectId: z.string().min(1), pageId: z.string().nullable() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    if (data.pageId) {
+      const page = await db.subjectPage.findFirst({
+        where: { id: data.pageId, subjectId: data.subjectId },
+        select: { id: true },
+      });
+      if (!page) throw new Error("Stránka nepatří do tohoto předmětu.");
+    }
+    await db.subject.update({
+      where: { id: data.subjectId },
+      data: { activePageId: data.pageId },
+    });
     return { ok: true };
   });
 
@@ -1272,7 +1325,7 @@ export const downloadAllSubmissionsZip = createServerFn({ method: "GET" })
           if (existsSync(filePath)) {
             const fileBytes = readFileSync(filePath);
             const cleanName = `${e.user.lastName}_${e.user.firstName}_${sub.fileName}`.replace(
-              /[\/\\?%*:|"<>]/g,
+              /[/\\?%*:|"<>]/g,
               "-",
             );
             zipData[cleanName] = new Uint8Array(fileBytes);
@@ -1297,7 +1350,7 @@ export const downloadAllSubmissionsZip = createServerFn({ method: "GET" })
               .map((m) => `${m.user.lastName}_${m.user.firstName}`)
               .join("-");
             const cleanName = `${p.name}_(${membersStr})_${sub.fileName}`.replace(
-              /[\/\\?%*:|"<>]/g,
+              /[/\\?%*:|"<>]/g,
               "-",
             );
             zipData[cleanName] = new Uint8Array(fileBytes);
@@ -1318,7 +1371,7 @@ export const downloadAllSubmissionsZip = createServerFn({ method: "GET" })
           const filePath = resolve(process.cwd(), sub.fileKey);
           if (existsSync(filePath)) {
             const fileBytes = readFileSync(filePath);
-            const cleanName = `${g.name}_${sub.fileName}`.replace(/[\/\\?%*:|"<>]/g, "-");
+            const cleanName = `${g.name}_${sub.fileName}`.replace(/[/\\?%*:|"<>]/g, "-");
             zipData[cleanName] = new Uint8Array(fileBytes);
           }
         }
@@ -1335,4 +1388,170 @@ export const downloadAllSubmissionsZip = createServerFn({ method: "GET" })
       mimeType: "application/zip",
       dataBase64: Buffer.from(zipBuffer).toString("base64"),
     };
+  });
+
+// --- grading automation: Moodle test import + late-penalty settings ---
+
+export const updateGradingSettings = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        subjectId: z.string().min(1),
+        grade1Min: z.number().min(0).max(100),
+        grade2Min: z.number().min(0).max(100),
+        grade3Min: z.number().min(0).max(100),
+        grade4Min: z.number().min(0).max(100),
+        latePenaltyEnabled: z.boolean(),
+        latePenaltyWeight: z.number().min(0).max(1),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    if (
+      !(
+        data.grade1Min > data.grade2Min &&
+        data.grade2Min > data.grade3Min &&
+        data.grade3Min > data.grade4Min
+      )
+    ) {
+      throw new Error("Hranice známek musí klesat: 1 > 2 > 3 > 4.");
+    }
+    await db.subjectGradingSettings.upsert({
+      where: { subjectId: data.subjectId },
+      create: { ...data },
+      update: {
+        grade1Min: data.grade1Min,
+        grade2Min: data.grade2Min,
+        grade3Min: data.grade3Min,
+        grade4Min: data.grade4Min,
+        latePenaltyEnabled: data.latePenaltyEnabled,
+        latePenaltyWeight: data.latePenaltyWeight,
+      },
+    });
+    return { ok: true };
+  });
+
+export const importMoodleTest = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => {
+    if (!(data instanceof FormData)) throw new Error("Očekávána data formuláře.");
+    const subjectId = data.get("subjectId");
+    const title = data.get("title");
+    const file = data.get("file");
+    if (typeof subjectId !== "string" || !subjectId) throw new Error("Chybí předmět.");
+    if (!(file instanceof File) || file.size === 0) throw new Error("Vyberte soubor.");
+    if (file.size > 10 * 1024 * 1024) throw new Error("Soubor je příliš velký (limit 10 MB).");
+    return { subjectId, title: typeof title === "string" ? title.trim() : "", file };
+  })
+  .handler(async ({ data }) => {
+    const actor = await requireStaff();
+
+    const text = await data.file.text();
+    let rows;
+    try {
+      rows = parseMoodleFile(data.file.name, text);
+    } catch (err) {
+      throw new Error(
+        `Soubor se nepodařilo přečíst: ${err instanceof Error ? err.message : "neznámý formát"}`,
+      );
+    }
+    if (rows.length === 0) throw new Error("V souboru nebyl nalezen žádný výsledek studenta.");
+
+    const settings = await getOrCreateGradingSettings(data.subjectId);
+    const students = await db.enrollment.findMany({
+      where: { subjectId: data.subjectId },
+      select: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+    });
+    const candidates = students.map((s) => s.user);
+
+    const title = data.title || data.file.name.replace(/\.[^.]+$/, "");
+    const maxPoints = 10;
+
+    const test = await db.moodleTest.create({
+      data: {
+        subjectId: data.subjectId,
+        title,
+        sourceFileName: data.file.name,
+        maxPoints,
+        importedById: actor.id,
+      },
+    });
+
+    let matched = 0;
+    for (const row of rows) {
+      const student = matchStudent(row, candidates);
+      if (student) matched++;
+      const percentage = (row.score / maxPoints) * 100;
+      await db.moodleTestResult.create({
+        data: {
+          moodleTestId: test.id,
+          userId: student?.id ?? null,
+          matchedName: `${row.lastName} ${row.firstName}`.trim(),
+          matchedEmail: row.email || null,
+          rawScore: row.score,
+          percentage,
+          grade: gradeFromPercentage(percentage, settings),
+          attemptAt: row.completedAt ?? row.startedAt,
+          durationSeconds: row.durationSeconds,
+        },
+      });
+    }
+
+    return { testId: test.id, total: rows.length, matched, unmatched: rows.length - matched };
+  });
+
+export const updateMoodleTestResult = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().min(1),
+        grade: z.enum(["1", "2", "3", "4", "5"]).optional(),
+        rawScore: z.number().min(0).optional(),
+        userId: z.string().nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    const result = await db.moodleTestResult.findUnique({
+      where: { id: data.id },
+      include: { moodleTest: { select: { subjectId: true, maxPoints: true } } },
+    });
+    if (!result) throw new Error("Výsledek nenalezen.");
+
+    const update: {
+      rawScore?: number;
+      percentage?: number;
+      grade?: string;
+      userId?: string | null;
+      matchedEmail?: string | null;
+    } = {};
+
+    if (data.rawScore !== undefined) {
+      update.rawScore = data.rawScore;
+      update.percentage = (data.rawScore / result.moodleTest.maxPoints) * 100;
+      if (!data.grade) {
+        const settings = await getOrCreateGradingSettings(result.moodleTest.subjectId);
+        update.grade = gradeFromPercentage(update.percentage, settings);
+      }
+    }
+    if (data.grade) update.grade = data.grade;
+    if (data.userId !== undefined) {
+      update.userId = data.userId;
+      if (data.userId) {
+        const u = await db.user.findUnique({ where: { id: data.userId }, select: { email: true } });
+        update.matchedEmail = u?.email ?? null;
+      }
+    }
+
+    await db.moodleTestResult.update({ where: { id: data.id }, data: update });
+    return { ok: true };
+  });
+
+export const deleteMoodleTest = createServerFn({ method: "POST" })
+  .inputValidator((id: string) => z.string().parse(id))
+  .handler(async ({ data: id }) => {
+    await requireStaff();
+    await db.moodleTest.delete({ where: { id } });
+    return { ok: true };
   });

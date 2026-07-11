@@ -172,6 +172,26 @@ export interface SubjectDetail extends SubjectCard {
   staffPanel: StaffSubjectPanel | null; // set for staff
   latestAnnouncement: { id: string; title: string; createdAt: string } | null;
   announcementCount: number;
+  /** page currently marked as the taught topic ("aktivní látka") */
+  activePageId: string | null;
+}
+
+/** All downloadable materials of a course on one page, grouped by course page. */
+export interface SubjectMaterialsData {
+  subjectName: string;
+  subjectSlug: string;
+  theme: SubjectTheme;
+  pages: { id: string; title: string; slug: string; files: SubjectFileItem[] }[];
+}
+
+/** Currently taught topic of one course, shown on the student dashboard. */
+export interface ActiveTopic {
+  subjectId: string;
+  subjectName: string;
+  subjectSlug: string;
+  theme: SubjectTheme;
+  pageTitle: string;
+  pageSlug: string;
 }
 
 /* ---------- audit log (PRD §5C) ---------- */
@@ -184,6 +204,32 @@ export interface AuditEntryView {
   oldValue: string | null;
   newValue: string | null;
   createdAt: string; // ISO
+}
+
+/* ---------- pair activity (skokový graf: nahráno / nenahráno po týdnech) ---------- */
+
+/** Whether at least one upload landed in that week. `label` is the Monday date, cs-CZ short. */
+export interface WeekBucket {
+  label: string; // "1.1."
+  weekStart: string; // ISO
+  count: number; // >0 renders as "uploaded"; the chart never shows the number itself
+}
+
+/** One line of the step chart: a person's weekly upload presence. */
+export interface PairActivityLane {
+  name: string;
+  weeks: WeekBucket[];
+}
+
+/** Per-course "did each of us upload this week" — this student vs their pair partner. */
+export interface PairWeeklyComparison {
+  subjectId: string;
+  subjectName: string;
+  subjectSlug: string;
+  theme: SubjectTheme;
+  pairName: string;
+  me: PairActivityLane;
+  partner: PairActivityLane | null; // null if no partner assigned yet
 }
 
 /* ---------- globální karta žáka (napříč kurzy) ---------- */
@@ -213,6 +259,20 @@ export interface StudentProfileData {
     avgGrade: string | null;
   };
   classes: { id: string; name: string; schoolYear: string; isArchived: boolean }[];
+  /** one weekly me-vs-partner comparison per course where the student is paired */
+  pairCharts: PairWeeklyComparison[];
+  moodleResults: StudentMoodleResultView[];
+}
+
+/** One imported Moodle test attempt, as shown on the karta žáka. */
+export interface StudentMoodleResultView {
+  testTitle: string;
+  subjectName: string;
+  subjectSlug: string;
+  rawScore: number;
+  maxPoints: number;
+  grade: string;
+  attemptAt: string | null; // ISO
 }
 
 /* ---------- karta žáka (Moodle "user report") ---------- */
@@ -270,6 +330,13 @@ export interface VersionItem {
 }
 
 /** One submission unit of an assignment (student / pair / study group). */
+/** One weekly "5" auto-accrued for time-management (§ late penalty). */
+export interface LatePenaltyView {
+  weekIndex: number;
+  value: string;
+  weight: number;
+}
+
 export interface UnitView {
   key: string; // unitKey: "u:<id>" | "p:<id>" | "g:<id>"
   name: string; // student name / "Dvojice 1 (L1)" / "L1"
@@ -281,6 +348,7 @@ export interface UnitView {
   feedback: string | null;
   locked: boolean;
   extension: string | null; // ISO
+  latePenalties: LatePenaltyView[];
 }
 
 export interface AssignmentConsentView {
@@ -321,6 +389,8 @@ export interface PairView {
   id: string;
   name: string;
   members: { id: string; name: string }[];
+  /** weekly upload presence per member, in the same order as `members` */
+  activity: PairActivityLane[];
 }
 
 export interface StudyGroupView {
@@ -353,6 +423,7 @@ export interface OverviewCell {
   extension: string | null; // ISO
   versionsList: VersionItem[];
   members: { id: string; name: string }[];
+  latePenalties: LatePenaltyView[];
 }
 
 export interface ClassOverviewData {
@@ -398,8 +469,9 @@ export interface StaffDashboard {
 export interface StudentDashboard {
   kind: "student";
   subjects: SubjectCard[];
-  tasks: StudentTask[];
-  recent: ActivityItem[];
+  activeTopics: ActiveTopic[];
+  /** one weekly me-vs-partner comparison per course where the student is paired */
+  pairCharts: PairWeeklyComparison[];
   classNotifications: {
     id: string;
     title: string;
@@ -413,7 +485,6 @@ export type DashboardData = StaffDashboard | StudentDashboard;
 
 export interface StudentPanelData {
   tasks: StudentTask[];
-  recent: ActivityItem[];
 }
 
 export interface AdminUserRow {
@@ -441,4 +512,47 @@ export interface AdminData {
   classes: AdminClassRow[];
   subjects: SubjectCard[];
   auditLogs: AuditEntryView[];
+}
+
+/* ---------- grading automation: Moodle import + late penalty (per course) ---------- */
+
+export interface GradingSettingsView {
+  grade1Min: number;
+  grade2Min: number;
+  grade3Min: number;
+  grade4Min: number;
+  latePenaltyEnabled: boolean;
+  latePenaltyWeight: number;
+}
+
+export interface MoodleTestSummary {
+  id: string;
+  title: string;
+  sourceFileName: string;
+  createdAt: string; // ISO
+  resultCount: number;
+  matchedCount: number;
+  avgGrade: string | null;
+}
+
+export interface MoodleTestResultRow {
+  id: string;
+  userId: string | null;
+  matchedName: string;
+  matchedEmail: string | null;
+  rawScore: number;
+  percentage: number;
+  grade: string;
+  attemptAt: string | null; // ISO
+  durationSeconds: number | null;
+}
+
+export interface MoodleTestDetail {
+  id: string;
+  title: string;
+  subjectName: string;
+  subjectSlug: string;
+  maxPoints: number;
+  results: MoodleTestResultRow[];
+  enrolledStudents: { id: string; name: string }[]; // for fixing unmatched rows
 }

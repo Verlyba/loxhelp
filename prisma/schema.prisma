@@ -27,19 +27,22 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  sessions          Session[]
-  enrollments       Enrollment[]
-  studyGroupMembers StudyGroupMember[]
-  pairMembers       PairMember[]
-  uploads           Submission[]       @relation("Uploader")
-  unitSubmissions   Submission[]       @relation("IndividualUnit")
-  grades            Grade[]
-  announcements     Announcement[]
-  auditLogs         AuditLog[]         @relation("AuditActor")
-  consents          AssignmentConsent[]
-  testAttempts      TestAttempt[]
-  taughtSubjects    Subject[]          @relation("SubjectTeacher")
-  sentNotifications ClassNotification[] @relation("NotificationAuthor")
+  sessions            Session[]
+  enrollments         Enrollment[]
+  studyGroupMembers   StudyGroupMember[]
+  pairMembers         PairMember[]
+  uploads             Submission[]        @relation("Uploader")
+  unitSubmissions     Submission[]        @relation("IndividualUnit")
+  grades              Grade[]
+  announcements       Announcement[]
+  auditLogs           AuditLog[]          @relation("AuditActor")
+  consents            AssignmentConsent[]
+  testAttempts        TestAttempt[]
+  taughtSubjects      Subject[]           @relation("SubjectTeacher")
+  sentNotifications   ClassNotification[] @relation("NotificationAuthor")
+  importedMoodleTests MoodleTest[]        @relation("MoodleImporter")
+  moodleTestResults   MoodleTestResult[]
+  latePenalties       LatePenalty[]
 }
 
 // Audit trail for classification/submission-state changes (PRD §5C). Every
@@ -66,14 +69,14 @@ model AuditLog {
 // student confirms they were briefed on terms/criteria and (optionally) chose a
 // variant. Timestamped + user-bound so it stands as proof in later disputes.
 model AssignmentConsent {
-  id            String     @id @default(uuid())
-  assignmentId  String
-  assignment    Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  acceptedText  String // the exact text the student agreed to (frozen for evidence)
-  variant       String? // chosen option/variant, if the task offered a choice
-  acceptedAt    DateTime   @default(now())
+  id           String     @id @default(uuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acceptedText String // the exact text the student agreed to (frozen for evidence)
+  variant      String? // chosen option/variant, if the task offered a choice
+  acceptedAt   DateTime   @default(now())
 
   @@unique([assignmentId, userId])
   @@index([assignmentId])
@@ -124,19 +127,108 @@ model Subject {
   imageUrl    String?
   themeStyle  String  @default("default") // loxone | cad3d | default
   classId     String
-  class      Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  class       Class   @relation(fields: [classId], references: [id], onDelete: Cascade)
   teacherId   String?
   teacher     User?   @relation("SubjectTeacher", fields: [teacherId], references: [id], onDelete: SetNull)
 
-  assignments   Assignment[]
-  enrollments   Enrollment[]
-  pages         SubjectPage[]
-  studyGroups   StudyGroup[]
-  announcements Announcement[]
-  tests         Test[]
+  // Currently taught topic ("aktivní látka") — the teacher marks one course
+  // page as active; student dashboards link straight to it.
+  activePageId String?
+  activePage   SubjectPage? @relation("ActiveTopic", fields: [activePageId], references: [id], onDelete: SetNull)
+
+  assignments     Assignment[]
+  enrollments     Enrollment[]
+  pages           SubjectPage[]
+  studyGroups     StudyGroup[]
+  announcements   Announcement[]
+  tests           Test[]
+  moodleTests     MoodleTest[]
+  gradingSettings SubjectGradingSettings?
 
   @@index([classId])
   @@index([teacherId])
+}
+
+// Per-course grading automation: thresholds used to turn a Moodle test score
+// into a 1-5 grade on import, and the weight of the weekly time-management
+// penalty (§ below). One row per subject, created lazily with defaults.
+model SubjectGradingSettings {
+  id        String  @id @default(uuid())
+  subjectId String  @unique
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  // minimum percentage of max points required for each grade; below grade4Min => 5
+  grade1Min Float @default(90)
+  grade2Min Float @default(75)
+  grade3Min Float @default(60)
+  grade4Min Float @default(40)
+
+  // Time-management penalty: each started week an assignment stays
+  // unsubmitted past its due date adds one more "5" at this weight.
+  latePenaltyEnabled Boolean @default(true)
+  latePenaltyWeight  Float   @default(0.5)
+
+  updatedAt DateTime @updatedAt
+}
+
+// One imported Moodle quiz-results file for a course. Moodle quizzes allow
+// repeated attempts of the same activity (e.g. a weekly "minitest" reused all
+// term), so one MoodleTest commonly holds many dated attempts per student.
+model MoodleTest {
+  id             String   @id @default(uuid())
+  subjectId      String
+  subject        Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  title          String
+  sourceFileName String
+  maxPoints      Float    @default(10)
+  importedById   String
+  importedBy     User     @relation("MoodleImporter", fields: [importedById], references: [id])
+  createdAt      DateTime @default(now())
+
+  results MoodleTestResult[]
+
+  @@index([subjectId])
+}
+
+// One row per attempt in the imported file. `userId` is null when the row
+// couldn't be matched to an enrolled student — kept visible so the teacher
+// can fix it by hand ("data pujdou opravovat").
+model MoodleTestResult {
+  id              String     @id @default(uuid())
+  moodleTestId    String
+  moodleTest      MoodleTest @relation(fields: [moodleTestId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  matchedName     String // raw "Příjmení Jméno" from the file, for display/audit
+  matchedEmail    String?
+  rawScore        Float // 0..maxPoints
+  percentage      Float // rawScore / maxPoints * 100
+  grade           String // "1".."5" — auto-computed on import, editable after
+  attemptAt       DateTime?
+  durationSeconds Int?
+  createdAt       DateTime   @default(now())
+
+  @@index([moodleTestId])
+  @@index([userId])
+}
+
+// One weekly "5" for time-management, auto-accrued while an assignment stays
+// unsubmitted past its due date. Stops being created once the student submits
+// or the teacher sets a real grade — existing rows are never removed.
+model LatePenalty {
+  id           String     @id @default(uuid())
+  assignmentId String
+  assignment   Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekIndex    Int // 1 = first started week late, 2 = second, …
+  value        String     @default("5")
+  weight       Float // snapshot of the course's latePenaltyWeight at creation time
+  createdAt    DateTime   @default(now())
+
+  @@unique([assignmentId, userId, weekIndex])
+  @@index([assignmentId])
+  @@index([userId])
 }
 
 // Teaching group inside a subject — the class splits into these for lessons
@@ -208,6 +300,7 @@ model SubjectPage {
 
   files       SubjectFile[]
   assignments Assignment[]
+  activeOf    Subject[]     @relation("ActiveTopic")
 
   @@unique([subjectId, slug])
   @@index([subjectId])
@@ -261,9 +354,10 @@ model Assignment {
 
   createdAt DateTime @default(now())
 
-  submissions Submission[]
-  grades      Grade[]
-  consents    AssignmentConsent[]
+  submissions   Submission[]
+  grades        Grade[]
+  consents      AssignmentConsent[]
+  latePenalties LatePenalty[]
 
   @@index([subjectId])
   @@index([pageId])
@@ -309,7 +403,7 @@ model Grade {
   value        String? // "1", "1-", "2", …
   note         String? // Slovní zpětná vazba (Feedback)
   locked       Boolean    @default(false)
-  extension    DateTime?  // Prodloužený termín odevzdání
+  extension    DateTime? // Prodloužený termín odevzdání
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -324,7 +418,7 @@ model Test {
   title       String
   description String        @default("")
   isPublished Boolean       @default(false)
-  timeLimit   Int?          // Limit v minutách, null = bez limitu
+  timeLimit   Int? // Limit v minutách, null = bez limitu
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   questions   Question[]
@@ -338,7 +432,7 @@ model Question {
   testId  String
   test    Test             @relation(fields: [testId], references: [id], onDelete: Cascade)
   text    String
-  type    String           // "SINGLE" | "MULTIPLE" | "TEXT"
+  type    String // "SINGLE" | "MULTIPLE" | "TEXT"
   points  Int              @default(1)
   order   Int              @default(0)
   options QuestionOption[]
@@ -367,8 +461,8 @@ model TestAttempt {
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   startedAt   DateTime  @default(now())
   submittedAt DateTime? // null = rozpracovaný / spuštěný
-  score       Float?    // Celkový získaný počet bodů
-  feedback    String?   // Slovní komentář učitele k pokusu
+  score       Float? // Celkový získaný počet bodů
+  feedback    String? // Slovní komentář učitele k pokusu
   answers     Answer[]
 
   @@index([testId])
@@ -376,15 +470,15 @@ model TestAttempt {
 }
 
 model Answer {
-  id              String         @id @default(uuid())
+  id              String           @id @default(uuid())
   attemptId       String
-  attempt         TestAttempt    @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  attempt         TestAttempt      @relation(fields: [attemptId], references: [id], onDelete: Cascade)
   questionId      String
-  question        Question       @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  text            String?        // Pro textové otázky
+  question        Question         @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text            String? // Pro textové otázky
   selectedOptions QuestionOption[] // Implicitní many-to-many relace
-  points          Float?         // Udělené body (automaticky nebo ručně učitelem)
-  feedback        String?        // Komentář učitele k dané odpovědi
+  points          Float? // Udělené body (automaticky nebo ručně učitelem)
+  feedback        String? // Komentář učitele k dané odpovědi
 
   @@unique([attemptId, questionId])
   @@index([attemptId])

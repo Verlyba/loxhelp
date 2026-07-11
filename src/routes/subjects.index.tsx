@@ -22,6 +22,7 @@ import type { SubjectCard } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
 import { PageShell } from "@/components/page-shell";
+import { CoverImageField } from "@/components/cover-picker";
 
 type ManagedSubject = SubjectCard & {
   teacherId: string | null;
@@ -60,18 +61,6 @@ function SubjectsIndex() {
   return <StaffSubjectsView subjects={subjects} classes={classes} teachers={teachers} />;
 }
 
-/* ================= Student View ================= */
-
-/* ================= Cover Presets for Subjects ================= */
-
-const COVER_PRESETS = [
-  { name: "Chytrý dům (Loxone)", url: "https://images.unsplash.com/photo-1558002038-1055907df827?auto=format&fit=crop&w=600&q=80" },
-  { name: "3D CAD & Engineering", url: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80" },
-  { name: "Programování & Web", url: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=600&q=80" },
-  { name: "Počítačové sítě", url: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=600&q=80" },
-  { name: "Technologie & Studium", url: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80" }
-];
-
 /* ================= CourseCard Reuseable Component ================= */
 
 function CourseCard({ s, children }: { s: SubjectCard; children?: React.ReactNode }) {
@@ -93,12 +82,12 @@ function CourseCard({ s, children }: { s: SubjectCard; children?: React.ReactNod
           <div className="absolute inset-0 bg-gradient-to-br from-subject/20 to-subject/5" />
         )}
         <div className="subject-grid-bg absolute inset-0 opacity-40 pointer-events-none" />
-        
+
         {/* Class Badge inside image */}
         <span className="absolute top-3 left-3 bg-black/60 text-[10px] font-bold tracking-wider uppercase text-white rounded-full px-2.5 py-1 backdrop-blur-md border border-white/10 select-none">
           {s.className} · {s.schoolYear}
         </span>
-        
+
         {/* Soft gradient bottom overlay for readability */}
         <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/50 to-transparent opacity-60 pointer-events-none" />
       </div>
@@ -111,7 +100,7 @@ function CourseCard({ s, children }: { s: SubjectCard; children?: React.ReactNod
         <p className="mt-1.5 text-xs text-muted-foreground line-clamp-2 min-h-[2.25rem] flex-1">
           {s.description || "Bez popisu předmětu."}
         </p>
-        
+
         {children}
       </div>
     </div>
@@ -204,8 +193,15 @@ function StaffSubjectsView({
                 <div key={s.id}>
                   <CourseCard s={s}>
                     <div className="mt-1 text-xs text-muted-foreground flex justify-between items-center">
-                      <span>Učitel: <span className="font-semibold text-foreground">{s.teacherName ?? "—"}</span></span>
-                      <span className="text-[11px] bg-muted px-2 py-0.5 rounded-full font-medium">{s.studentCount} stud.</span>
+                      <span>
+                        Učitel:{" "}
+                        <span className="font-semibold text-foreground">
+                          {s.teacherName ?? "—"}
+                        </span>
+                      </span>
+                      <span className="text-[11px] bg-muted px-2 py-0.5 rounded-full font-medium">
+                        {s.studentCount} stud.
+                      </span>
                     </div>
 
                     <div className="mt-5 flex flex-wrap items-center gap-1 border-t border-border/80 pt-3 text-xs relative">
@@ -360,35 +356,10 @@ function CreateSubject({
             className={inputCls}
           />
           <div className="grid gap-3">
-            <label className="block text-xs font-semibold text-muted-foreground">
-              Obrázek (URL)
-              <input
-                value={form.imageUrl}
-                onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-                placeholder="https://example.com/image.jpg (nepovinné)"
-                className={`${inputCls} mt-1 w-full`}
-              />
-            </label>
-            
-            {/* Presets Grid */}
-            <div className="text-xs font-semibold text-muted-foreground">
-              Předvolby obrázků
-              <div className="mt-1.5 grid grid-cols-5 gap-1.5">
-                {COVER_PRESETS.map((preset) => (
-                  <button
-                    key={preset.url}
-                    type="button"
-                    onClick={() => setForm({ ...form, imageUrl: preset.url })}
-                    className={`relative aspect-video overflow-hidden rounded-md border-2 bg-muted transition-all cursor-pointer ${
-                      form.imageUrl === preset.url ? "border-primary scale-95 shadow-sm" : "border-transparent hover:border-muted-foreground/30"
-                    }`}
-                    title={preset.name}
-                  >
-                    <img src={preset.url} alt={preset.name} className="h-full w-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            </div>
+            <CoverImageField
+              value={form.imageUrl}
+              onChange={(v) => setForm({ ...form, imageUrl: v })}
+            />
 
             <div className="grid grid-cols-2 gap-2">
               <label className="block text-xs font-semibold text-muted-foreground">
@@ -517,35 +488,10 @@ function EditSubjectModal({
             className={`${inputCls} mt-1 w-full resize-none`}
           />
         </label>
-        <label className="block text-xs font-semibold text-muted-foreground">
-          Obrázek (URL)
-          <input
-            value={form.imageUrl}
-            onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
-            placeholder="https://example.com/image.jpg (nepovinné)"
-            className={`${inputCls} mt-1 w-full`}
-          />
-        </label>
-
-        {/* Presets Grid */}
-        <div className="text-xs font-semibold text-muted-foreground">
-          Předvolby obrázků
-          <div className="mt-1.5 grid grid-cols-5 gap-1.5">
-            {COVER_PRESETS.map((preset) => (
-              <button
-                key={preset.url}
-                type="button"
-                onClick={() => setForm({ ...form, imageUrl: preset.url })}
-                className={`relative aspect-video overflow-hidden rounded-md border-2 bg-muted transition-all cursor-pointer ${
-                  form.imageUrl === preset.url ? "border-primary scale-95 shadow-sm" : "border-transparent hover:border-muted-foreground/30"
-                }`}
-                title={preset.name}
-              >
-                <img src={preset.url} alt={preset.name} className="h-full w-full object-cover" />
-              </button>
-            ))}
-          </div>
-        </div>
+        <CoverImageField
+          value={form.imageUrl}
+          onChange={(v) => setForm({ ...form, imageUrl: v })}
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-xs font-semibold text-muted-foreground">

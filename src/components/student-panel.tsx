@@ -1,16 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  FileUp,
-  ListTodo,
-  Activity,
-  ChevronRight,
-  X,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, ListTodo, ChevronRight, X } from "lucide-react";
 import { getStudentPanel } from "@/lib/data";
 import type { StudentTask, TaskStatus } from "@/lib/types";
 
@@ -45,11 +36,10 @@ function useStudentPanel() {
   return useQuery({ queryKey: ["student-panel"], queryFn: () => getStudentPanel() });
 }
 
-/** Persistent right-hand panel for students: tasks on top, activity below. */
+/** Persistent right-hand panel for students: pending and submitted tasks. */
 export function StudentPanel() {
   const { data, isLoading } = useStudentPanel();
   const tasks = data?.tasks ?? [];
-  const activity = data?.recent ?? [];
   const todo = tasks.filter((t) => t.status !== "submitted");
   const done = tasks.filter((t) => t.status === "submitted");
 
@@ -92,35 +82,6 @@ export function StudentPanel() {
               ))}
             </ul>
           </details>
-        )}
-      </section>
-
-      <section className="surface-card p-4">
-        <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold">
-          <Activity className="h-4 w-4 text-subject" />
-          Poslední aktivita
-        </h2>
-        {activity.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Zatím žádné nahrané soubory.</p>
-        ) : (
-          <ul className="space-y-3">
-            {activity.map((a) => (
-              <li key={a.assignmentId + a.version} className="flex items-start gap-2.5 text-sm">
-                <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-                  <FileUp className="h-3.5 w-3.5" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">
-                    <span className="mono text-xs text-muted-foreground">v{a.version}</span>{" "}
-                    {a.fileName}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {a.unitName} · {a.uploadedByName}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
         )}
       </section>
     </div>

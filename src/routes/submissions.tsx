@@ -19,9 +19,18 @@ export const Route = createFileRoute("/submissions")({
 });
 
 const STATUS_CHIP: Record<TaskStatus, { label: string; cls: string }> = {
-  overdue: { label: "Po termínu", cls: "bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30" },
-  pending: { label: "K odevzdání", cls: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:ring-amber-900/30" },
-  submitted: { label: "Odevzdáno", cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:ring-emerald-900/30" },
+  overdue: {
+    label: "Po termínu",
+    cls: "bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30",
+  },
+  pending: {
+    label: "K odevzdání",
+    cls: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:ring-amber-900/30",
+  },
+  submitted: {
+    label: "Odevzdáno",
+    cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:ring-emerald-900/30",
+  },
 };
 
 function SubmissionHub() {
@@ -39,7 +48,9 @@ function SubmissionHub() {
       }
     >
       {courses.length === 0 ? (
-        <p className="text-muted-foreground text-center py-8">Nejste zapsáni v žádném aktivním kurzu.</p>
+        <p className="text-muted-foreground text-center py-8">
+          Nejste zapsáni v žádném aktivním kurzu.
+        </p>
       ) : (
         <div className="grid gap-6">
           {courses.map((c) => (
@@ -67,40 +78,62 @@ function SubmissionHub() {
                   <thead className="text-left text-xs uppercase tracking-wider text-muted-foreground bg-muted/10">
                     <tr>
                       <th className="px-4 py-3 font-semibold border-b border-border text-left">
-                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Úkol</span>
-                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Název úkolu</span>
+                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                          Úkol
+                        </span>
+                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                          Název úkolu
+                        </span>
                       </th>
                       <th className="px-3 py-3 font-semibold border-b border-border text-left">
-                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Typ odevzdání</span>
-                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Jednotlivec / Skupina</span>
+                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                          Typ odevzdání
+                        </span>
+                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                          Jednotlivec / Skupina
+                        </span>
                       </th>
                       <th className="px-3 py-3 text-center font-semibold border-b border-border">
-                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Známka</span>
-                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Hodnocení</span>
+                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                          Známka
+                        </span>
+                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                          Hodnocení
+                        </span>
                       </th>
                       <th className="px-3 py-3 font-semibold border-b border-border text-left">
-                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Termín odevzdání</span>
-                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Vypršení termínu</span>
+                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                          Termín odevzdání
+                        </span>
+                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                          Vypršení termínu
+                        </span>
                       </th>
                       <th className="px-3 py-3 text-right font-semibold border-b border-border">
-                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">Stav</span>
-                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">Aktuální fáze</span>
+                        <span className="block text-foreground font-bold tracking-normal normal-case text-xs">
+                          Stav
+                        </span>
+                        <span className="block text-[9px] text-muted-foreground font-normal normal-case mt-0.5">
+                          Aktuální fáze
+                        </span>
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/60">
                     {c.missing.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-5 text-sm text-emerald-700 font-semibold bg-emerald-50/5">
+                        <td
+                          colSpan={5}
+                          className="px-4 py-5 text-sm text-emerald-700 font-semibold bg-emerald-50/5"
+                        >
                           <span className="flex items-center gap-2">
-                            <CheckCircle2 className="h-4 w-4 text-emerald-600" /> Všechny aktivní úkoly jsou odevzdané!
+                            <CheckCircle2 className="h-4 w-4 text-emerald-600" /> Všechny aktivní
+                            úkoly jsou odevzdané!
                           </span>
                         </td>
                       </tr>
                     ) : (
-                      c.missing.map((item) => (
-                        <HubTableRow key={item.assignmentId} item={item} />
-                      ))
+                      c.missing.map((item) => <HubTableRow key={item.assignmentId} item={item} />)
                     )}
                   </tbody>
                 </table>
@@ -157,11 +190,11 @@ function HubTableRow({ item, muted = false }: { item: HubItem; muted?: boolean }
           <span className="text-muted-foreground text-xs">—</span>
         )}
       </td>
-      <td className="px-3 py-3 text-xs text-muted-foreground">
-        {formatDateTime(item.dueAt)}
-      </td>
+      <td className="px-3 py-3 text-xs text-muted-foreground">{formatDateTime(item.dueAt)}</td>
       <td className="px-3 py-3 text-right">
-        <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${chip.cls}`}>
+        <span
+          className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${chip.cls}`}
+        >
           {chip.label}
         </span>
       </td>

@@ -15,6 +15,8 @@ import {
   X,
   Megaphone,
   FileQuestion,
+  FolderOpen,
+  BookMarked,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubject } from "@/lib/data";
@@ -24,6 +26,7 @@ import {
   updateSubject,
   deleteSubject,
   movePage,
+  setActiveTopic,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -31,6 +34,7 @@ import { StudentTopPanels, StaffTopPanels } from "@/components/subject-top-panel
 import type { PageTemplate, SubjectDetail, SubjectPageNav } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { CoverImageField } from "@/components/cover-picker";
 
 export const Route = createFileRoute("/subjects/$slug")({
   beforeLoad: ({ context }) => {
@@ -53,6 +57,9 @@ function SubjectLayout() {
   const user = useUser();
   const staff = !!user && isStaff(user.role);
   const [modalOpen, setModalOpen] = useState(false);
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // The class overview grid needs every pixel — drop the right rail there.
+  const wideContent = pathname.endsWith("/overview");
 
   return (
     <div
@@ -63,7 +70,10 @@ function SubjectLayout() {
       <div className="subject-hero border-b border-border relative overflow-hidden bg-muted">
         {subject.imageUrl ? (
           <>
-            <div className="absolute inset-0 bg-cover bg-center opacity-25" style={{ backgroundImage: `url(${subject.imageUrl})` }} />
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-25"
+              style={{ backgroundImage: `url(${subject.imageUrl})` }}
+            />
             <div className="absolute inset-0 bg-gradient-to-r from-background via-background/90 to-transparent" />
           </>
         ) : (
@@ -100,11 +110,15 @@ function SubjectLayout() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[90rem] px-4 sm:px-6 py-6 lg:py-8 pb-32 lg:pb-40 lg:grid lg:grid-cols-[220px_1fr] xl:grid-cols-[220px_1fr_330px] lg:gap-7">
+      <div
+        className={`mx-auto max-w-[90rem] px-4 sm:px-6 py-6 lg:py-8 pb-32 lg:pb-40 lg:grid lg:grid-cols-[220px_1fr] lg:gap-7 ${
+          wideContent ? "" : "xl:grid-cols-[220px_1fr_330px]"
+        }`}
+      >
         <PageSidebar subject={subject} />
         <div className="min-w-0 mt-6 lg:mt-0">
           {/* On smaller screens the panels sit above the content */}
-          {(subject.studentPanel || subject.staffPanel) && (
+          {!wideContent && (subject.studentPanel || subject.staffPanel) && (
             <div className="mb-6 xl:hidden">
               {subject.studentPanel && (
                 <StudentTopPanels panel={subject.studentPanel} subjectSlug={subject.slug} />
@@ -118,7 +132,7 @@ function SubjectLayout() {
         </div>
 
         {/* Right rail — static course panels (xl+) */}
-        {(subject.studentPanel || subject.staffPanel) && (
+        {!wideContent && (subject.studentPanel || subject.staffPanel) && (
           <aside className="hidden xl:block">
             <div className="sticky top-[4.5rem] max-h-[calc(100vh-5.5rem)] overflow-y-auto pr-1">
               {subject.studentPanel && (
@@ -142,14 +156,6 @@ function SubjectLayout() {
     </div>
   );
 }
-
-const COVER_PRESETS = [
-  { name: "Chytrý dům (Loxone)", url: "https://images.unsplash.com/photo-1558002038-1055907df827?auto=format&fit=crop&w=600&q=80" },
-  { name: "3D CAD & Engineering", url: "https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=600&q=80" },
-  { name: "Programování & Web", url: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=600&q=80" },
-  { name: "Počítačové sítě", url: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=600&q=80" },
-  { name: "Technologie & Studium", url: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=600&q=80" }
-];
 
 function EditSubjectModal({
   isOpen,
@@ -205,7 +211,6 @@ function EditSubjectModal({
       danger: true,
     });
     if (!ok) return;
-    busy;
     setBusy(true);
     try {
       await del({ data: subject.id });
@@ -255,36 +260,7 @@ function EditSubjectModal({
             />
           </label>
 
-          <label className="block text-xs font-semibold text-muted-foreground">
-            Obrázek (URL)
-            <input
-              type="text"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="https://example.com/image.jpg (nepovinné)"
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-            />
-          </label>
-
-          {/* Presets Grid */}
-          <div className="text-xs font-semibold text-muted-foreground">
-            Předvolby obrázků
-            <div className="mt-1.5 grid grid-cols-5 gap-1.5">
-              {COVER_PRESETS.map((preset) => (
-                <button
-                  key={preset.url}
-                  type="button"
-                  onClick={() => setImageUrl(preset.url)}
-                  className={`relative aspect-video overflow-hidden rounded-md border-2 bg-muted transition-all cursor-pointer ${
-                    imageUrl === preset.url ? "border-primary scale-95 shadow-sm" : "border-transparent hover:border-muted-foreground/30"
-                  }`}
-                  title={preset.name}
-                >
-                  <img src={preset.url} alt={preset.name} className="h-full w-full object-cover" />
-                </button>
-              ))}
-            </div>
-          </div>
+          <CoverImageField value={imageUrl} onChange={setImageUrl} />
 
           <label className="block text-xs font-semibold text-muted-foreground">
             Styl a motiv kurzu
@@ -372,11 +348,24 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
           <FileQuestion className="h-4 w-4 shrink-0" />
           <span className="truncate">Testy</span>
         </Link>
+        <Link
+          to="/subjects/$slug/materials"
+          params={{ slug: subject.slug }}
+          className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
+            pathname.endsWith("/materials")
+              ? "nav-active font-medium"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
+          }`}
+        >
+          <FolderOpen className="h-4 w-4 shrink-0" />
+          <span className="truncate">Materiály</span>
+        </Link>
         <div className="my-1 hidden border-t border-border lg:block" />
 
         {subject.pages.map((p, i) => {
           const href = `/subjects/${subject.slug}/p/${p.slug}`;
           const active = pathname === href || (i === 0 && pathname === `/subjects/${subject.slug}`);
+          const isTopic = p.id === subject.activePageId;
           const Icon = PAGE_ICON[p.template];
           return (
             <div key={p.id} className="group/item relative flex shrink-0 items-center">
@@ -391,13 +380,24 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 <span className="truncate">{p.title}</span>
+                {isTopic && (
+                  <span
+                    title="Právě probíraná látka"
+                    className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-subject-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-subject ring-1 ring-subject/30 lg:group-hover/item:hidden"
+                  >
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-subject" />
+                    <span className="hidden lg:inline">Probíráme</span>
+                  </span>
+                )}
               </Link>
               {staff && (
                 <PageRowActions
                   page={p}
+                  subjectId={subject.id}
                   subjectSlug={subject.slug}
                   isFirst={i === 0}
                   isLast={i === subject.pages.length - 1}
+                  isTopic={isTopic}
                 />
               )}
             </div>
@@ -437,21 +437,26 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
   );
 }
 
-/** Hover actions on a sidebar page row: move up/down + delete (staff). */
+/** Hover actions on a sidebar page row: mark as taught topic, move up/down + delete (staff). */
 function PageRowActions({
   page,
+  subjectId,
   subjectSlug,
   isFirst,
   isLast,
+  isTopic,
 }: {
   page: SubjectPageNav;
+  subjectId: string;
   subjectSlug: string;
   isFirst: boolean;
   isLast: boolean;
+  isTopic: boolean;
 }) {
   const router = useRouter();
   const del = useServerFn(deleteSubjectPage);
   const move = useServerFn(movePage);
+  const setTopic = useServerFn(setActiveTopic);
   const [busy, setBusy] = useState(false);
   const { confirm } = useDialog();
 
@@ -465,8 +470,41 @@ function PageRowActions({
     }
   };
 
+  const handleTopic = async () => {
+    setBusy(true);
+    try {
+      await setTopic({ data: { subjectId, pageId: isTopic ? null : page.id } });
+      toast.success(
+        isTopic
+          ? "Označení probírané látky zrušeno."
+          : `„${page.title}“ je teď probíraná látka — studenti ji uvidí na hlavním panelu.`,
+      );
+      await router.invalidate();
+    } catch {
+      toast.error("Označení se nepodařilo změnit.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <span className="absolute right-1 hidden items-center gap-0 lg:group-hover/item:flex">
+    <span className="absolute right-1 hidden items-center gap-0 bg-inherit lg:group-hover/item:flex">
+      <button
+        type="button"
+        aria-label={
+          isTopic
+            ? "Zrušit označení probírané látky"
+            : `Označit ${page.title} jako probíranou látku`
+        }
+        title={isTopic ? "Zrušit „Probíráme“" : "Označit jako probíranou látku"}
+        disabled={busy}
+        onClick={handleTopic}
+        className={`rounded p-0.5 disabled:opacity-50 ${
+          isTopic ? "text-subject" : "text-muted-foreground hover:text-subject"
+        }`}
+      >
+        <BookMarked className="h-3.5 w-3.5" />
+      </button>
       {!isFirst && (
         <button
           type="button"

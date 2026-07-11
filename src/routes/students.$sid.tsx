@@ -11,6 +11,7 @@ import {
   GraduationCap,
   Upload,
   X,
+  FileSpreadsheet,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getStudentProfile } from "@/lib/data";
@@ -18,6 +19,7 @@ import { updateUser, deleteUser, setUserPassword } from "@/lib/actions";
 import { formatDate } from "@/lib/format";
 import { PageShell } from "@/components/page-shell";
 import { useDialog } from "@/components/dialog-provider";
+import { PairActivityChart } from "@/components/pair-activity-chart";
 import { toast } from "sonner";
 import type { StudentProfileData } from "@/lib/types";
 
@@ -47,6 +49,7 @@ function StudentProfilePage() {
   const initials = (data.student.firstName[0] + (data.student.lastName[0] ?? ""))
     .toUpperCase()
     .slice(0, 2);
+  const pairChartsBySubject = new Map(data.pairCharts.map((pc) => [pc.subjectId, pc]));
 
   const handleDelete = async () => {
     const ok = await confirm({
@@ -126,7 +129,7 @@ function StudentProfilePage() {
           <div className="h-24 w-full bg-gradient-to-r from-subject/30 via-subject/20 to-subject/5 relative">
             <div className="subject-grid-bg absolute inset-0 opacity-35" />
           </div>
-          
+
           {/* Main Card Content */}
           <div className="px-6 pb-6 pt-0 relative flex flex-col md:flex-row md:items-end justify-between gap-5 -mt-10">
             <div className="flex flex-col sm:flex-row items-center sm:items-end gap-4 text-center sm:text-left">
@@ -135,11 +138,16 @@ function StudentProfilePage() {
                 {initials}
               </span>
               <div className="min-w-0 pb-1">
-                <p className="font-display text-xl font-extrabold text-foreground leading-tight">{data.student.name}</p>
+                <p className="font-display text-xl font-extrabold text-foreground leading-tight">
+                  {data.student.name}
+                </p>
                 <p className="text-sm text-muted-foreground mt-1 font-medium">
                   Třída:{" "}
                   {data.student.className ? (
-                    <Link to="/classes" className="font-semibold text-foreground hover:text-subject hover:underline">
+                    <Link
+                      to="/classes"
+                      className="font-semibold text-foreground hover:text-subject hover:underline"
+                    >
                       {data.student.className}
                     </Link>
                   ) : (
@@ -158,7 +166,7 @@ function StudentProfilePage() {
           </div>
         </div>
 
-        {/* Enrolled subjects */}
+        {/* Enrolled subjects — per-course overview, incl. pair comparison */}
         <section>
           <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
             <BookOpen className="h-5 w-5 text-subject" /> Kurzy ({data.subjects.length})
@@ -169,46 +177,110 @@ function StudentProfilePage() {
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2">
-              {data.subjects.map((s) => (
-                <div key={s.id} data-subject-theme={s.theme} className="surface-card p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <Link
-                      to="/subjects/$slug"
-                      params={{ slug: s.slug }}
-                      className="font-medium hover:underline"
-                    >
-                      {s.name}
-                    </Link>
-                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-subject" />
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
-                    {s.studyGroup && (
+              {data.subjects.map((s) => {
+                const pairChart = pairChartsBySubject.get(s.id);
+                return (
+                  <div key={s.id} data-subject-theme={s.theme} className="surface-card p-4">
+                    <div className="flex items-start justify-between gap-2">
                       <Link
-                        to="/subjects/$slug/groups"
+                        to="/subjects/$slug"
                         params={{ slug: s.slug }}
-                        className="inline-flex items-center gap-1 rounded-full bg-subject-soft px-2 py-0.5 ring-1 ring-subject/30 hover:opacity-85"
+                        className="font-medium hover:underline"
                       >
-                        <Users2 className="h-3 w-3" /> {s.studyGroup}
+                        {s.name}
                       </Link>
-                    )}
-                    {s.pair && (
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                        {s.pair}
-                      </span>
+                      <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-subject" />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+                      {s.studyGroup && (
+                        <Link
+                          to="/subjects/$slug/groups"
+                          params={{ slug: s.slug }}
+                          className="inline-flex items-center gap-1 rounded-full bg-subject-soft px-2 py-0.5 ring-1 ring-subject/30 hover:opacity-85"
+                        >
+                          <Users2 className="h-3 w-3" /> {s.studyGroup}
+                        </Link>
+                      )}
+                      {s.pair && (
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                          {s.pair}
+                        </span>
+                      )}
+                    </div>
+                    <Link
+                      to="/subjects/$slug/students/$sid"
+                      params={{ slug: s.slug, sid: data.student.id }}
+                      className="mt-3 inline-block text-xs font-medium text-subject underline underline-offset-2 hover:opacity-80"
+                    >
+                      Výsledky v kurzu →
+                    </Link>
+
+                    {pairChart && (
+                      <div className="mt-3 border-t border-border/60 pt-3">
+                        <PairActivityChart
+                          title="Přehled dvojice"
+                          subtitle={`${pairChart.pairName} — kdo tento týden nahrál`}
+                          lanes={
+                            pairChart.partner ? [pairChart.me, pairChart.partner] : [pairChart.me]
+                          }
+                        />
+                      </div>
                     )}
                   </div>
-                  <Link
-                    to="/subjects/$slug/students/$sid"
-                    params={{ slug: s.slug, sid: data.student.id }}
-                    className="mt-3 inline-block text-xs font-medium text-subject underline underline-offset-2 hover:opacity-80"
-                  >
-                    Výsledky v kurzu →
-                  </Link>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
+
+        {data.moodleResults.length > 0 && (
+          <section>
+            <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
+              <FileSpreadsheet className="h-5 w-5 text-subject" /> Testy z Moodle (
+              {data.moodleResults.length})
+            </h2>
+            <div className="surface-card overflow-x-auto">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Test</th>
+                    <th className="px-3 py-2.5 font-medium">Předmět</th>
+                    <th className="px-3 py-2.5 font-medium">Datum</th>
+                    <th className="px-3 py-2.5 text-center font-medium">Body</th>
+                    <th className="px-3 py-2.5 text-center font-medium">Známka</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {data.moodleResults.map((r, i) => (
+                    <tr key={i} className="hover:bg-accent/40 transition-colors">
+                      <td className="px-4 py-2 font-medium text-foreground">{r.testTitle}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        <Link
+                          to="/subjects/$slug"
+                          params={{ slug: r.subjectSlug }}
+                          className="hover:text-subject hover:underline"
+                        >
+                          {r.subjectName}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground">
+                        {r.attemptAt ? formatDate(r.attemptAt) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-center text-xs text-muted-foreground">
+                        {r.rawScore.toString().replace(".", ",")} / {r.maxPoints}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-subject-soft text-xs font-extrabold text-subject ring-1 ring-subject/20">
+                          {r.grade}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
 
       {editing && <EditModal data={data} onClose={() => setEditing(false)} />}
@@ -223,7 +295,9 @@ function Mini({ label, value, icon: Icon }: { label: string; value: string; icon
         <Icon className="h-3.5 w-3.5" />
         <span className="font-display text-base font-extrabold leading-none">{value}</span>
       </div>
-      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-1 text-center select-none leading-tight">{label}</span>
+      <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider mt-1 text-center select-none leading-tight">
+        {label}
+      </span>
     </div>
   );
 }

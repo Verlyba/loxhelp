@@ -3,8 +3,10 @@ import { redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { asTheme, isStaff } from "@/lib/roles";
+import { DEFAULT_GRADING_SETTINGS } from "@/lib/moodle-import";
 import type { SessionUser } from "@/lib/types";
 import type {
+  ActiveTopic,
   ActivityItem,
   AdminData,
   AnnouncementItem,
@@ -14,8 +16,14 @@ import type {
   AssignmentOverview,
   ClassesData,
   ClassOverviewData,
+  GradingSettingsView,
+  LatePenaltyView,
+  MoodleTestDetail,
+  MoodleTestResultRow,
+  MoodleTestSummary,
   StudentCardData,
   StudentCardRow,
+  StudentMoodleResultView,
   StudentProfileData,
   DashboardData,
   HubCourse,
@@ -28,6 +36,9 @@ import type {
   SubjectCard,
   SubjectDetail,
   SubjectGroupsData,
+  SubjectMaterialsData,
+  PairWeeklyComparison,
+  WeekBucket,
   TargetType,
   TaskStatus,
   UnitView,
@@ -137,16 +148,16 @@ async function myUnitsBySubject(userId: string) {
 
   const pairBySubject = new Map<
     string,
-    { id: string; name: string; groupName: string; partnerNames: string[] }
+    { id: string; name: string; groupName: string; partnerNames: string[]; partnerIds: string[] }
   >();
   for (const pm of pairs) {
+    const partners = pm.pair.members.filter((m) => m.user.id !== userId);
     pairBySubject.set(pm.pair.studyGroup.subjectId, {
       id: pm.pair.id,
       name: pm.pair.name,
       groupName: pm.pair.studyGroup.name,
-      partnerNames: pm.pair.members
-        .filter((m) => m.user.id !== userId)
-        .map((m) => fullName(m.user)),
+      partnerNames: partners.map((m) => fullName(m.user)),
+      partnerIds: partners.map((m) => m.user.id),
     });
   }
   const groupBySubject = new Map<string, { id: string; name: string }>();
@@ -298,20 +309,110 @@ function toActivity(s: SubmissionForActivity): ActivityItem {
   };
 }
 
-async function studentRecent(userId: string, limit = 6): Promise<ActivityItem[]> {
-  const units = await myUnitsBySubject(userId);
-  const keys = [
-    `u:${userId}`,
-    ...[...units.pairBySubject.values()].map((p) => `p:${p.id}`),
-    ...[...units.groupBySubject.values()].map((g) => `g:${g.id}`),
-  ];
-  const subs = await db.submission.findMany({
-    where: { unitKey: { in: keys } },
-    orderBy: { createdAt: "desc" },
-    take: limit,
-    include: activityInclude,
+/** Monday 00:00 of the week containing `d` (local time). */
+function startOfWeek(d: Date): Date {
+  const dt = new Date(d);
+  dt.setHours(0, 0, 0, 0);
+  const day = (dt.getDay() + 6) % 7; // Mon=0 … Sun=6
+  dt.setDate(dt.getDate() - day);
+  return dt;
+}
+
+const WEEKLY_WEEKS = 8;
+
+/** The Monday of the oldest of the last `weeks` weeks — use as a query cutoff. */
+function weeklyCutoff(weeks = WEEKLY_WEEKS): Date {
+  const start = startOfWeek(new Date());
+  start.setDate(start.getDate() - (weeks - 1) * 7);
+  return start;
+}
+
+/** Buckets timestamps into the last `weeks` Mon-start weeks, oldest first. */
+function bucketByWeek(dates: Date[], weeks = WEEKLY_WEEKS): WeekBucket[] {
+  const currentWeekStart = startOfWeek(new Date());
+  const starts: Date[] = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const s = new Date(currentWeekStart);
+    s.setDate(s.getDate() - i * 7);
+    starts.push(s);
+  }
+  const counts = new Map(starts.map((s) => [s.getTime(), 0]));
+  for (const d of dates) {
+    const key = startOfWeek(d).getTime();
+    if (counts.has(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return starts.map((s) => ({
+    label: s.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" }),
+    weekStart: s.toISOString(),
+    count: counts.get(s.getTime()) ?? 0,
+  }));
+}
+
+/**
+ * Per-course weekly upload presence for a student and their pair partner(s) —
+ * "did each of us upload something this week", last 8 weeks. Used on the
+ * student's own dashboard and on the global karta žáka; only returns entries
+ * for courses where the student is actually paired.
+ */
+async function studentPairWeeklyCharts(userId: string): Promise<PairWeeklyComparison[]> {
+  const pairMembers = await db.pairMember.findMany({
+    where: { userId },
+    include: {
+      pair: {
+        select: {
+          id: true,
+          name: true,
+          studyGroup: {
+            select: {
+              subjectId: true,
+              subject: { select: { name: true, slug: true, themeStyle: true } },
+            },
+          },
+          members: {
+            include: { user: { select: { id: true, firstName: true, lastName: true } } },
+          },
+        },
+      },
+    },
   });
-  return subs.map(toActivity);
+  if (pairMembers.length === 0) return [];
+
+  const cutoff = weeklyCutoff();
+  const pairSubs = await db.submission.findMany({
+    where: {
+      unitKey: { in: pairMembers.map((m) => `p:${m.pair.id}`) },
+      createdAt: { gte: cutoff },
+    },
+    select: { unitKey: true, uploadedById: true, createdAt: true },
+  });
+
+  return pairMembers.flatMap((m) => {
+    const partners = m.pair.members.filter((mm) => mm.user.id !== userId);
+    if (partners.length === 0) return [];
+    const partnerIds = new Set(partners.map((p) => p.user.id));
+    const subs = pairSubs.filter((s) => s.unitKey === `p:${m.pair.id}`);
+    return [
+      {
+        subjectId: m.pair.studyGroup.subjectId,
+        subjectName: m.pair.studyGroup.subject.name,
+        subjectSlug: m.pair.studyGroup.subject.slug,
+        theme: asTheme(m.pair.studyGroup.subject.themeStyle),
+        pairName: m.pair.name,
+        me: {
+          name: "Já",
+          weeks: bucketByWeek(
+            subs.filter((s) => s.uploadedById === userId).map((s) => s.createdAt),
+          ),
+        },
+        partner: {
+          name: partners.map((p) => fullName(p.user)).join(" a "),
+          weeks: bucketByWeek(
+            subs.filter((s) => partnerIds.has(s.uploadedById)).map((s) => s.createdAt),
+          ),
+        },
+      },
+    ];
+  });
 }
 
 // --- dashboard ---
@@ -346,14 +447,27 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       };
     }
 
-    const [subjects, tasks, recent, classNotifications] = await Promise.all([
+    const [subjects, activeSubjects, pairCharts, classNotifications] = await Promise.all([
       db.subject.findMany({
         ...subjectCardArgs,
         where: { enrollments: { some: { userId: user.id } } },
         orderBy: { name: "asc" },
       }),
-      studentTasks(user.id),
-      studentRecent(user.id),
+      db.subject.findMany({
+        where: {
+          enrollments: { some: { userId: user.id } },
+          activePageId: { not: null },
+        },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          themeStyle: true,
+          activePage: { select: { title: true, slug: true } },
+        },
+      }),
+      studentPairWeeklyCharts(user.id),
       db.classNotification.findMany({
         where: { classId: user.classId || "" },
         orderBy: { createdAt: "desc" },
@@ -361,11 +475,26 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       }),
     ]);
 
+    const activeTopics: ActiveTopic[] = activeSubjects.flatMap((s) =>
+      s.activePage
+        ? [
+            {
+              subjectId: s.id,
+              subjectName: s.name,
+              subjectSlug: s.slug,
+              theme: asTheme(s.themeStyle),
+              pageTitle: s.activePage.title,
+              pageSlug: s.activePage.slug,
+            },
+          ]
+        : [],
+    );
+
     return {
       kind: "student",
       subjects: subjects.map(toSubjectCard),
-      tasks,
-      recent,
+      activeTopics,
+      pairCharts,
       classNotifications: classNotifications.map((n) => ({
         id: n.id,
         title: n.title,
@@ -542,6 +671,59 @@ export const getSubject = createServerFn({ method: "GET" })
           }
         : null,
       announcementCount,
+      activePageId: subject.activePageId,
+    };
+  });
+
+/** All course materials on one page, grouped by course page (students: published only). */
+export const getSubjectMaterials = createServerFn({ method: "GET" })
+  .inputValidator((slug: string) => z.string().parse(slug))
+  .handler(async ({ data: slug }): Promise<SubjectMaterialsData> => {
+    const user = await requireUser();
+    const staff = isStaff(user.role);
+
+    const subject = await db.subject.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        themeStyle: true,
+        pages: {
+          orderBy: { order: "asc" },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            files: { where: staff ? {} : { isPublished: true }, orderBy: { order: "asc" } },
+          },
+        },
+      },
+    });
+    if (!subject) throw redirect({ to: "/subjects" });
+    await assertEnrolledOrStaff(user, subject.id);
+
+    return {
+      subjectName: subject.name,
+      subjectSlug: subject.slug,
+      theme: asTheme(subject.themeStyle),
+      pages: subject.pages
+        .filter((p) => p.files.length > 0)
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          slug: p.slug,
+          files: p.files.map((f) => ({
+            id: f.id,
+            label: f.label,
+            fileName: f.fileName,
+            fileSize: f.fileSize,
+            mimeType: f.mimeType,
+            category: f.category,
+            description: f.description,
+            isPublished: f.isPublished,
+          })),
+        })),
     };
   });
 
@@ -678,6 +860,83 @@ function toVersion(s: SubmissionRow): VersionItem {
   };
 }
 
+// --- time-management late penalty (lazily accrued weekly "5"s) ---
+
+async function readGradingSettings(subjectId: string): Promise<GradingSettingsView> {
+  const row = await db.subjectGradingSettings.findUnique({ where: { subjectId } });
+  return row
+    ? {
+        grade1Min: row.grade1Min,
+        grade2Min: row.grade2Min,
+        grade3Min: row.grade3Min,
+        grade4Min: row.grade4Min,
+        latePenaltyEnabled: row.latePenaltyEnabled,
+        latePenaltyWeight: row.latePenaltyWeight,
+      }
+    : DEFAULT_GRADING_SETTINGS;
+}
+
+/** How many 7-day periods have started since `dueDate`; 0 if not yet overdue. */
+function weeksLate(dueDate: Date, now: Date): number {
+  const diff = now.getTime() - dueDate.getTime();
+  return diff <= 0 ? 0 : Math.ceil(diff / (7 * 24 * 3600 * 1000));
+}
+
+/**
+ * Ensures every still-unsubmitted, still-ungraded candidate has one
+ * LatePenalty row per started week late, then returns everything accrued so
+ * far (existing + newly created), keyed by `${assignmentId}|${userId}`.
+ * Never deletes rows — once given, a penalty stands even after submission.
+ */
+async function syncLatePenalties(
+  candidates: { assignmentId: string; userId: string; dueDate: Date }[],
+  weight: number,
+): Promise<Map<string, LatePenaltyView[]>> {
+  const assignmentIds = [...new Set(candidates.map((c) => c.assignmentId))];
+  const existingRows = assignmentIds.length
+    ? await db.latePenalty.findMany({ where: { assignmentId: { in: assignmentIds } } })
+    : [];
+
+  const byKey = new Map<string, LatePenaltyView[]>();
+  for (const e of existingRows) {
+    const k = `${e.assignmentId}|${e.userId}`;
+    const list = byKey.get(k) ?? [];
+    list.push({ weekIndex: e.weekIndex, value: e.value, weight: e.weight });
+    byKey.set(k, list);
+  }
+
+  const now = new Date();
+  const toCreate: {
+    assignmentId: string;
+    userId: string;
+    weekIndex: number;
+    value: string;
+    weight: number;
+  }[] = [];
+  for (const c of candidates) {
+    const weeks = weeksLate(c.dueDate, now);
+    if (weeks <= 0) continue;
+    const k = `${c.assignmentId}|${c.userId}`;
+    const list = byKey.get(k) ?? [];
+    for (let w = list.length + 1; w <= weeks; w++) {
+      toCreate.push({
+        assignmentId: c.assignmentId,
+        userId: c.userId,
+        weekIndex: w,
+        value: "5",
+        weight,
+      });
+      list.push({ weekIndex: w, value: "5", weight });
+    }
+    byKey.set(k, list);
+  }
+  if (toCreate.length > 0) {
+    await db.latePenalty.createMany({ data: toCreate });
+  }
+  for (const list of byKey.values()) list.sort((a, b) => a.weekIndex - b.weekIndex);
+  return byKey;
+}
+
 export const getAssignment = createServerFn({ method: "GET" })
   .inputValidator((id: string) => z.string().parse(id))
   .handler(async ({ data: id }): Promise<AssignmentDetail> => {
@@ -762,6 +1021,7 @@ export const getAssignment = createServerFn({ method: "GET" })
         feedback,
         locked,
         extension,
+        latePenalties: [], // filled in below for staff, once units are known
       };
     };
 
@@ -848,6 +1108,23 @@ export const getAssignment = createServerFn({ method: "GET" })
       units = staff ? all : mine ? [mine] : [];
     }
 
+    if (staff) {
+      const settings = await readGradingSettings(subjectId);
+      if (settings.latePenaltyEnabled) {
+        const effectiveDue = (u: (typeof units)[number]) =>
+          u.extension ? new Date(u.extension) : assignment.dueDate;
+        const candidates = units
+          .filter((u) => u.versions.length === 0 && !u.grade)
+          .flatMap((u) =>
+            u.members.map((m) => ({ assignmentId: id, userId: m.id, dueDate: effectiveDue(u) })),
+          );
+        const penaltiesByUser = await syncLatePenalties(candidates, settings.latePenaltyWeight);
+        for (const u of units) {
+          u.latePenalties = penaltiesByUser.get(`${id}|${u.members[0]?.id}`) ?? [];
+        }
+      }
+    }
+
     return {
       id: assignment.id,
       title: assignment.title,
@@ -884,9 +1161,8 @@ export const getAssignment = createServerFn({ method: "GET" })
 export const getStudentPanel = createServerFn({ method: "GET" }).handler(
   async (): Promise<StudentPanelData> => {
     const user = await requireUser();
-    if (isStaff(user.role)) return { tasks: [], recent: [] };
-    const [tasks, recent] = await Promise.all([studentTasks(user.id), studentRecent(user.id)]);
-    return { tasks, recent };
+    if (isStaff(user.role)) return { tasks: [] };
+    return { tasks: await studentTasks(user.id) };
   },
 );
 
@@ -969,6 +1245,18 @@ export const getSubjectGroups = createServerFn({ method: "GET" })
     const inAnyGroup = new Set(subject.studyGroups.flatMap((g) => g.members.map((m) => m.userId)));
     const enrolledIds = new Set(subject.enrollments.map((e) => e.userId));
 
+    const allPairIds = subject.studyGroups.flatMap((g) => g.pairs.map((p) => p.id));
+    const pairSubs =
+      allPairIds.length > 0
+        ? await db.submission.findMany({
+            where: {
+              unitKey: { in: allPairIds.map((id) => `p:${id}`) },
+              createdAt: { gte: weeklyCutoff() },
+            },
+            select: { unitKey: true, uploadedById: true, createdAt: true },
+          })
+        : [];
+
     return {
       subjectId: subject.id,
       subjectName: subject.name,
@@ -983,11 +1271,20 @@ export const getSubjectGroups = createServerFn({ method: "GET" })
             name: fullName(m.user),
             pairName: pairNameByUser.get(m.user.id) ?? null,
           })),
-          pairs: g.pairs.map((p) => ({
-            id: p.id,
-            name: p.name,
-            members: p.members.map((m) => ({ id: m.user.id, name: fullName(m.user) })),
-          })),
+          pairs: g.pairs.map((p) => {
+            const subs = pairSubs.filter((s) => s.unitKey === `p:${p.id}`);
+            return {
+              id: p.id,
+              name: p.name,
+              members: p.members.map((m) => ({ id: m.user.id, name: fullName(m.user) })),
+              activity: p.members.map((m) => ({
+                name: fullName(m.user),
+                weeks: bucketByWeek(
+                  subs.filter((s) => s.uploadedById === m.user.id).map((s) => s.createdAt),
+                ),
+              })),
+            };
+          }),
         };
       }),
       unassigned: subject.enrollments
@@ -1167,6 +1464,7 @@ export const getClassOverview = createServerFn({ method: "GET" })
           extension,
           versionsList: unitKey ? (versionsMap.get(`${a.id}|${unitKey}`) ?? []) : [],
           members: cellMembers,
+          latePenalties: [], // filled in below
         };
       }
 
@@ -1184,6 +1482,27 @@ export const getClassOverview = createServerFn({ method: "GET" })
         (a.studyGroup ?? "").localeCompare(b.studyGroup ?? "") || a.name.localeCompare(b.name),
     );
 
+    const settings = await readGradingSettings(subject.id);
+    if (settings.latePenaltyEnabled) {
+      const dueById = new Map(subject.assignments.map((a) => [a.id, a.dueDate]));
+      const candidates = rows.flatMap((row) =>
+        Object.entries(row.cells).flatMap(([assignmentId, cell]) => {
+          if (cell.status === "none" || cell.versions > 0 || cell.grade) return [];
+          const due = cell.extension ? new Date(cell.extension) : dueById.get(assignmentId)!;
+          return cell.members.map((m) => ({ assignmentId, userId: m.id, dueDate: due }));
+        }),
+      );
+      const penaltiesByUser = await syncLatePenalties(candidates, settings.latePenaltyWeight);
+      for (const row of rows) {
+        for (const [assignmentId, cell] of Object.entries(row.cells)) {
+          const firstMember = cell.members[0]?.id;
+          cell.latePenalties = firstMember
+            ? (penaltiesByUser.get(`${assignmentId}|${firstMember}`) ?? [])
+            : [];
+        }
+      }
+    }
+
     return {
       subjectName: subject.name,
       assignments: subject.assignments.map((a) => ({
@@ -1193,6 +1512,90 @@ export const getClassOverview = createServerFn({ method: "GET" })
         targetType: asTarget(a.targetType),
       })),
       rows,
+    };
+  });
+
+// --- grading automation: settings + Moodle test imports (staff) ---
+
+export const getGradingSettings = createServerFn({ method: "GET" })
+  .inputValidator((subjectId: string) => z.string().parse(subjectId))
+  .handler(async ({ data: subjectId }): Promise<GradingSettingsView> => {
+    await requireStaffUser();
+    return readGradingSettings(subjectId);
+  });
+
+export const getMoodleTests = createServerFn({ method: "GET" })
+  .inputValidator((subjectId: string) => z.string().parse(subjectId))
+  .handler(async ({ data: subjectId }): Promise<MoodleTestSummary[]> => {
+    await requireStaffUser();
+    const tests = await db.moodleTest.findMany({
+      where: { subjectId },
+      orderBy: { createdAt: "desc" },
+      include: { results: { select: { userId: true, grade: true } } },
+    });
+    return tests.map((t) => {
+      const numericGrades = t.results.map((r) => Number(r.grade)).filter((n) => !Number.isNaN(n));
+      return {
+        id: t.id,
+        title: t.title,
+        sourceFileName: t.sourceFileName,
+        createdAt: t.createdAt.toISOString(),
+        resultCount: t.results.length,
+        matchedCount: t.results.filter((r) => r.userId).length,
+        avgGrade:
+          numericGrades.length > 0
+            ? (numericGrades.reduce((a, b) => a + b, 0) / numericGrades.length)
+                .toFixed(2)
+                .replace(".", ",")
+            : null,
+      };
+    });
+  });
+
+export const getMoodleTestDetail = createServerFn({ method: "GET" })
+  .inputValidator((id: string) => z.string().parse(id))
+  .handler(async ({ data: id }): Promise<MoodleTestDetail> => {
+    await requireStaffUser();
+    const test = await db.moodleTest.findUnique({
+      where: { id },
+      include: {
+        subject: {
+          select: {
+            name: true,
+            slug: true,
+            enrollments: {
+              include: { user: { select: { id: true, firstName: true, lastName: true } } },
+            },
+          },
+        },
+        results: { orderBy: { attemptAt: "asc" } },
+      },
+    });
+    if (!test) throw redirect({ to: "/subjects" });
+
+    const results: MoodleTestResultRow[] = test.results.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      matchedName: r.matchedName,
+      matchedEmail: r.matchedEmail,
+      rawScore: r.rawScore,
+      percentage: r.percentage,
+      grade: r.grade,
+      attemptAt: r.attemptAt?.toISOString() ?? null,
+      durationSeconds: r.durationSeconds,
+    }));
+
+    return {
+      id: test.id,
+      title: test.title,
+      subjectName: test.subject.name,
+      subjectSlug: test.subject.slug,
+      maxPoints: test.maxPoints,
+      results,
+      enrolledStudents: test.subject.enrollments.map((e) => ({
+        id: e.user.id,
+        name: fullName(e.user),
+      })),
     };
   });
 
@@ -1259,14 +1662,38 @@ export const getStudentProfile = createServerFn({ method: "GET" })
       student.pairMembers.map((m) => [m.pair.studyGroup.subjectId, m.pair.name]),
     );
 
-    const [totalUploads, grades, classes] = await Promise.all([
+    const [totalUploads, grades, classes, pairCharts, moodleResultRows] = await Promise.all([
       db.submission.count({ where: { uploadedById: id } }),
       db.grade.findMany({ where: { userId: id, value: { not: null } }, select: { value: true } }),
       db.class.findMany({
         orderBy: [{ schoolYear: "desc" }, { name: "asc" }],
         select: { id: true, name: true, schoolYear: true, isArchived: true },
       }),
+      studentPairWeeklyCharts(id),
+      db.moodleTestResult.findMany({
+        where: { userId: id },
+        orderBy: { attemptAt: "desc" },
+        include: {
+          moodleTest: {
+            select: {
+              title: true,
+              maxPoints: true,
+              subject: { select: { name: true, slug: true } },
+            },
+          },
+        },
+      }),
     ]);
+
+    const moodleResults: StudentMoodleResultView[] = moodleResultRows.map((r) => ({
+      testTitle: r.moodleTest.title,
+      subjectName: r.moodleTest.subject.name,
+      subjectSlug: r.moodleTest.subject.slug,
+      rawScore: r.rawScore,
+      maxPoints: r.moodleTest.maxPoints,
+      grade: r.grade,
+      attemptAt: r.attemptAt?.toISOString() ?? null,
+    }));
 
     const numeric = grades
       .map((g) => parseFloat((g.value ?? "").replace(",", ".").replace("-", ".5")))
@@ -1300,6 +1727,8 @@ export const getStudentProfile = createServerFn({ method: "GET" })
             : null,
       },
       classes,
+      pairCharts,
+      moodleResults,
     };
   });
 

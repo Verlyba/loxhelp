@@ -1,19 +1,18 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Plus, Search, Shuffle, Trash2, UserPlus, Users2, X, Pencil, Check } from "lucide-react";
+import { Plus, Search, Trash2, UserPlus, Users2, X, Pencil, Check } from "lucide-react";
+import { PairActivityChart } from "@/components/pair-activity-chart";
 import { requireStaff } from "@/lib/guards";
 import { getSubjectGroups } from "@/lib/data";
 import {
   createStudyGroup,
   updateStudyGroup,
   deleteStudyGroup,
-  setStudentStudyGroup,
   addStudentToStudyGroup,
   removeStudentFromStudyGroup,
   createPair,
   deletePair,
-  generatePairsInGroup,
   enrollStudents,
   unenrollStudent,
 } from "@/lib/actions";
@@ -32,8 +31,30 @@ export const Route = createFileRoute("/subjects/$slug/groups")({
   component: GroupsPage,
 });
 
+/** Every student of the class, deduped, regardless of enrollment/group state. */
+function allClassStudents(data: SubjectGroupsData) {
+  const map = new Map<string, string>();
+  for (const g of data.studyGroups) for (const m of g.members) map.set(m.id, m.name);
+  for (const s of data.unassigned) map.set(s.id, s.name);
+  for (const s of data.notEnrolled) map.set(s.id, s.name);
+  return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
+
+/** Which existing group (if any) each student already belongs to, for hints in the picker. */
+function groupNameByStudent(data: SubjectGroupsData) {
+  const map = new Map<string, string>();
+  for (const g of data.studyGroups) for (const m of g.members) map.set(m.id, g.name);
+  return map;
+}
+
 function GroupsPage() {
   const data = Route.useLoaderData() as SubjectGroupsData;
+  const [groupModal, setGroupModal] = useState<
+    { mode: "create" } | { mode: "edit"; group: StudyGroupView } | null
+  >(null);
+  const [groupFilter, setGroupFilter] = useState<string>("all");
 
   return (
     <section className="space-y-6">
@@ -55,14 +76,31 @@ function GroupsPage() {
         <StepHeader
           n={2}
           title="Učební skupiny a dvojice"
-          hint="Zapsané studenty rozdělte do skupin (L1, L2, …) a v nich vytvořte dvojice — ručně výběrem, nebo rozlosováním zbytku."
+          hint="Nejprve vytvořte skupinu (L1, L2, …), pak v ní vyberte dvojici dvou studentů."
         />
-        <div className="grid gap-4 lg:grid-cols-2">
-          {data.studyGroups.map((g) => (
-            <StudyGroupCard key={g.id} group={g} data={data} />
-          ))}
-          <CreateGroupCard subjectId={data.subjectId} />
-        </div>
+
+        <button
+          onClick={() => setGroupModal({ mode: "create" })}
+          className="subject-button mb-4 inline-flex items-center gap-1.5 !px-3.5 !py-2 text-sm font-semibold"
+        >
+          <Plus className="h-4 w-4" /> Nová učební skupina
+        </button>
+
+        {data.studyGroups.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            Zatím nebyla vytvořena žádná učební skupina.
+          </p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {data.studyGroups.map((g) => (
+              <StudyGroupCard
+                key={g.id}
+                group={g}
+                onEditMembers={() => setGroupModal({ mode: "edit", group: g })}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {data.unassigned.length > 0 && (
@@ -71,7 +109,7 @@ function GroupsPage() {
             Bez učební skupiny ({data.unassigned.length})
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Zapsaní studenti bez přiřazení — přidejte je v kartě skupiny.
+            Zapsaní studenti bez přiřazení — přidejte je úpravou členů skupiny.
           </p>
           <div className="mt-3 flex flex-wrap gap-1.5">
             {data.unassigned.map((s) => (
@@ -86,7 +124,20 @@ function GroupsPage() {
         </div>
       )}
 
-      <EnrolledStudentsList data={data} />
+      <EnrolledStudentsList
+        data={data}
+        groupFilter={groupFilter}
+        onGroupFilterChange={setGroupFilter}
+      />
+
+      {groupModal && (
+        <GroupModal
+          data={data}
+          mode={groupModal.mode}
+          existingGroup={groupModal.mode === "edit" ? groupModal.group : null}
+          onClose={() => setGroupModal(null)}
+        />
+      )}
     </section>
   );
 }
@@ -175,87 +226,42 @@ function EnrollBox({ data }: { data: SubjectGroupsData }) {
   );
 }
 
-function StudyGroupCard({ group, data }: { group: StudyGroupView; data: SubjectGroupsData }) {
+function StudyGroupCard({
+  group,
+  onEditMembers,
+}: {
+  group: StudyGroupView;
+  onEditMembers: () => void;
+}) {
   const router = useRouter();
-  const assign = useServerFn(setStudentStudyGroup);
-  const addStudent = useServerFn(addStudentToStudyGroup);
-  const removeStudent = useServerFn(removeStudentFromStudyGroup);
   const delGroup = useServerFn(deleteStudyGroup);
   const delPair = useServerFn(deletePair);
   const mkPair = useServerFn(createPair);
-  const shuffle = useServerFn(generatePairsInGroup);
-  const enroll = useServerFn(enrollStudents);
   const updateGroup = useServerFn(updateStudyGroup);
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(group.name);
-  const [searchQuery, setSearchQuery] = useState("");
   const { confirm } = useDialog();
 
   const unpaired = group.members.filter((m) => !m.pairName);
 
   const toggle = (id: string) =>
-    setSelected((s) =>
-      s.includes(id) ? s.filter((x) => x !== id) : s.length < 3 ? [...s, id] : s,
-    );
+    setSelected((s) => {
+      if (s.includes(id)) return s.filter((x) => x !== id);
+      if (s.length >= 2) return [s[1], id]; // keep it at exactly two — swap the oldest pick
+      return [...s, id];
+    });
 
-  const handleToggleStudent = async (studentId: string, isMember: boolean, isEnrolled: boolean) => {
+  const createTheDvojice = async () => {
+    if (selected.length !== 2) return;
     setBusy(true);
     try {
-      if (isMember) {
-        await removeStudent({ data: { userId: studentId, studyGroupId: group.id } });
-      } else {
-        if (!isEnrolled) {
-          await enroll({ data: { subjectId: data.subjectId, userIds: [studentId] } });
-        }
-        await addStudent({ data: { userId: studentId, studyGroupId: group.id } });
-      }
-      await router.invalidate();
-    } catch (err) {
-      console.error("Chyba při správě člena skupiny:", err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Combine all students from groups, unassigned, and notEnrolled to get a complete class list
-  const allClassStudents = [
-    ...data.studyGroups.flatMap((g) => g.members.map((m) => ({ id: m.id, name: m.name }))),
-    ...data.unassigned.map((s) => ({ id: s.id, name: s.name })),
-    ...data.notEnrolled.map((s) => ({ id: s.id, name: s.name })),
-  ];
-
-  // Deduplicate by student ID
-  const seenIds = new Set<string>();
-  const uniqueClassStudents = allClassStudents.filter((s) => {
-    if (seenIds.has(s.id)) return false;
-    seenIds.add(s.id);
-    return true;
-  });
-
-  const memberIds = new Set(group.members.map((m) => m.id));
-  const notEnrolledIds = new Set(data.notEnrolled.map((s) => s.id));
-
-  const studentsList = uniqueClassStudents.map((s) => ({
-    id: s.id,
-    name: s.name,
-    isMember: memberIds.has(s.id),
-    isEnrolled: !notEnrolledIds.has(s.id),
-  }));
-
-  studentsList.sort((a, b) => a.name.localeCompare(b.name));
-
-  const filteredStudents = studentsList.filter((s) =>
-    s.name.toLowerCase().includes(searchQuery.toLowerCase()),
-  );
-
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    try {
-      await fn();
+      await mkPair({ data: { studyGroupId: group.id, memberIds: selected } });
       setSelected([]);
       await router.invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Vytvoření dvojice se nezdařilo.");
     } finally {
       setBusy(false);
     }
@@ -320,213 +326,315 @@ function StudyGroupCard({ group, data }: { group: StudyGroupView; data: SubjectG
             </span>
           </h3>
         )}
-        <button
-          onClick={async () => {
-            const ok = await confirm({
-              title: `Smazat skupinu ${group.name}?`,
-              message: `Skupina bude smazána. Studenti v ní zařazení budou přesunuti do nezařazených. Dvojice v této skupině budou také smazány.`,
-              danger: true,
-            });
-            if (ok) run(() => delGroup({ data: group.id }));
-          }}
-          aria-label={`Smazat skupinu ${group.name}`}
-          className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-red-50 transition-colors"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onEditMembers}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent"
+          >
+            <Users2 className="h-3.5 w-3.5" /> Upravit členy
+          </button>
+          <button
+            onClick={async () => {
+              const ok = await confirm({
+                title: `Smazat skupinu ${group.name}?`,
+                message: `Skupina bude smazána. Studenti v ní zařazení budou přesunuti do nezařazených. Dvojice v této skupině budou také smazány.`,
+                danger: true,
+              });
+              if (!ok) return;
+              setBusy(true);
+              try {
+                await delGroup({ data: group.id });
+                await router.invalidate();
+              } finally {
+                setBusy(false);
+              }
+            }}
+            aria-label={`Smazat skupinu ${group.name}`}
+            className="rounded p-1.5 text-muted-foreground hover:text-destructive hover:bg-red-50 transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      {/* Pairs */}
+      {/* Existing pairs — with a step chart of who's uploaded each week */}
       {group.pairs.length > 0 && (
-        <ul className="mt-3 grid gap-1.5">
+        <ul className="mt-3 grid gap-2.5">
           {group.pairs.map((p) => (
-            <li
-              key={p.id}
-              className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-1.5 text-sm bg-card"
-            >
-              <span className="text-foreground">
-                <span className="font-semibold text-subject">{p.name}:</span>{" "}
-                {p.members.map((m) => m.name).join(" + ")}
-              </span>
-              <button
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: `Zrušit ${p.name}?`,
-                    message: `Dvojice ${p.members.map((m) => m.name).join(" + ")} bude zrušena. Studenti zůstanou ve skupině jako nezařazení.`,
-                    danger: true,
-                  });
-                  if (ok) run(() => delPair({ data: p.id }));
-                }}
-                aria-label={`Zrušit ${p.name}`}
-                className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-red-50 transition-colors"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+            <li key={p.id} className="rounded-lg border border-border bg-card px-3 py-2">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-foreground">
+                  <span className="font-semibold text-subject">{p.name}:</span>{" "}
+                  {p.members.map((m) => m.name).join(" + ")}
+                </span>
+                <button
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: `Zrušit ${p.name}?`,
+                      message: `Dvojice ${p.members.map((m) => m.name).join(" + ")} bude zrušena. Studenti zůstanou ve skupině jako nezařazení.`,
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    setBusy(true);
+                    try {
+                      await delPair({ data: p.id });
+                      await router.invalidate();
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  aria-label={`Zrušit ${p.name}`}
+                  className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-red-50 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              {p.activity.length > 0 && (
+                <div className="mt-2 border-t border-border/60 pt-2">
+                  <PairActivityChart
+                    title=""
+                    subtitle="Kdo tento týden nahrál"
+                    lanes={p.activity}
+                  />
+                </div>
+              )}
             </li>
           ))}
         </ul>
       )}
 
-      {/* Unpaired members — select 2-3 to form a pair */}
+      {/* Plain table — check exactly two people, create the pair */}
       {unpaired.length > 0 && (
-        <div className="mt-3">
-          <p className="text-xs text-muted-foreground">Bez dvojice — vyberte 2–3 a spárujte:</p>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {unpaired.map((m) => (
-              <label
-                key={m.id}
-                className={`cursor-pointer rounded-full px-2.5 py-1 text-sm ring-1 transition-colors select-none ${
-                  selected.includes(m.id)
-                    ? "bg-subject-soft ring-subject/40 font-medium text-foreground"
-                    : "bg-muted ring-transparent hover:ring-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.includes(m.id)}
-                  onChange={() => toggle(m.id)}
-                  className="sr-only"
-                />
-                {m.name}
-              </label>
-            ))}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() =>
-                run(() => mkPair({ data: { studyGroupId: group.id, memberIds: selected } }))
-              }
-              disabled={busy || selected.length < 2}
-              className="subject-button !px-3 !py-1.5 text-xs disabled:opacity-60 font-semibold"
-            >
-              Spárovat vybrané
-            </button>
-            <button
-              onClick={() => run(() => shuffle({ data: group.id }))}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-60 font-medium text-foreground bg-surface"
-            >
-              <Shuffle className="h-3.5 w-3.5" /> Rozlosovat zbytek
-            </button>
-          </div>
+        <div className="mt-4 border-t border-border pt-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Vytvořit dvojici — vyberte dva studenty
+          </p>
+          <table className="w-full border-collapse text-sm">
+            <tbody className="divide-y divide-border/60">
+              {unpaired.map((m) => (
+                <tr
+                  key={m.id}
+                  onClick={() => toggle(m.id)}
+                  className={`cursor-pointer transition-colors ${
+                    selected.includes(m.id) ? "bg-subject-soft/50" : "hover:bg-accent/40"
+                  }`}
+                >
+                  <td className="w-8 py-1.5 pl-1">
+                    <input
+                      type="checkbox"
+                      readOnly
+                      checked={selected.includes(m.id)}
+                      className="h-4 w-4 accent-current text-subject"
+                    />
+                  </td>
+                  <td className="py-1.5 pr-1 text-foreground">{m.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button
+            onClick={createTheDvojice}
+            disabled={busy || selected.length !== 2}
+            className="subject-button mt-3 !px-3 !py-1.5 text-xs font-semibold disabled:opacity-50"
+          >
+            {busy ? "Vytvářím…" : "Vytvořit dvojici"}
+          </button>
         </div>
       )}
-
-      {/* Seznam studentů pro přidávání/odebírání kliknutím */}
-      <div className="mt-4 border-t border-border pt-4">
-        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Členové skupiny (kliknutím přidáte / odeberete):
-        </h4>
-
-        {/* Vyhledávací pole, pokud je ve třídě více než 6 studentů */}
-        {studentsList.length > 6 && (
-          <div className="relative mb-3">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Filtrovat studenty podle jména..."
-              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
-            />
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-1">
-          {filteredStudents.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
-              Žádní studenti neodpovídají hledání
-            </p>
-          ) : (
-            filteredStudents.map((s) => {
-              let badgeStyle = "";
-              let icon = "+";
-
-              if (s.isMember) {
-                badgeStyle = "bg-subject text-white hover:bg-subject/90 shadow-sm";
-                icon = "✓";
-              } else if (!s.isEnrolled) {
-                badgeStyle =
-                  "bg-muted/40 hover:bg-muted text-muted-foreground border border-dashed border-border";
-              } else {
-                badgeStyle = "bg-muted hover:bg-accent text-foreground";
-              }
-
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => handleToggleStudent(s.id, s.isMember, s.isEnrolled)}
-                  disabled={busy}
-                  title={
-                    s.isMember
-                      ? `Odebrat ze skupiny ${group.name}`
-                      : !s.isEnrolled
-                        ? `Zapsat do předmětu a přidat do skupiny ${group.name}`
-                        : `Přidat do skupiny ${group.name}`
-                  }
-                  className={`rounded-full px-2.5 py-1 text-xs transition-colors cursor-pointer select-none font-medium flex items-center gap-1 ${badgeStyle} disabled:opacity-60`}
-                >
-                  <span className="font-semibold text-[10px] opacity-90">{icon}</span>
-                  <span>{s.name}</span>
-                  {!s.isEnrolled && (
-                    <span className="text-[9px] opacity-75 font-normal">(zapsat)</span>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
     </div>
   );
 }
 
-function CreateGroupCard({ subjectId }: { subjectId: string }) {
+/**
+ * One modal, two jobs: create a brand-new group (name + member picker), or
+ * edit an existing group's members (picker only). Either way, membership is
+ * written by clicking names in a plain list — no drag, no shuffling.
+ */
+function GroupModal({
+  data,
+  mode,
+  existingGroup,
+  onClose,
+}: {
+  data: SubjectGroupsData;
+  mode: "create" | "edit";
+  existingGroup: StudyGroupView | null;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const create = useServerFn(createStudyGroup);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
+  const addStudent = useServerFn(addStudentToStudyGroup);
+  const removeStudent = useServerFn(removeStudentFromStudyGroup);
+  const enroll = useServerFn(enrollStudents);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const [name, setName] = useState(existingGroup?.name ?? "");
+  const [selected, setSelected] = useState<string[]>(
+    existingGroup ? existingGroup.members.map((m) => m.id) : [],
+  );
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const students = allClassStudents(data);
+  const groupOf = groupNameByStudent(data);
+  const notEnrolledIds = new Set(data.notEnrolled.map((s) => s.id));
+  const filtered = students.filter((s) => s.name.toLowerCase().includes(query.toLowerCase()));
+
+  const toggle = (id: string) =>
+    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+
+  const submit = async () => {
+    setError(null);
+    if (mode === "create" && !name.trim()) {
+      setError("Zadejte název skupiny.");
+      return;
+    }
     setBusy(true);
     try {
-      await create({ data: { subjectId, name } });
-      setName("");
+      if (mode === "create") {
+        await create({ data: { subjectId: data.subjectId, name, memberIds: selected } });
+        toast.success(`Skupina „${name}“ byla vytvořena.`);
+      } else if (existingGroup) {
+        const before = new Set(existingGroup.members.map((m) => m.id));
+        const after = new Set(selected);
+        const added = selected.filter((id) => !before.has(id));
+        const removed = existingGroup.members.map((m) => m.id).filter((id) => !after.has(id));
+        for (const userId of added) {
+          if (notEnrolledIds.has(userId)) {
+            await enroll({ data: { subjectId: data.subjectId, userIds: [userId] } });
+          }
+          await addStudent({ data: { userId, studyGroupId: existingGroup.id } });
+        }
+        for (const userId of removed) {
+          await removeStudent({ data: { userId, studyGroupId: existingGroup.id } });
+        }
+        toast.success("Členové skupiny byli upraveni.");
+      }
       await router.invalidate();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Uložení se nezdařilo.");
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <form
-      onSubmit={submit}
-      className="grid h-fit gap-2 rounded-2xl border border-dashed border-border p-5 bg-card"
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
     >
-      <h3 className="flex items-center gap-2 font-display font-semibold text-muted-foreground">
-        <Plus className="h-4 w-4" /> Nová učební skupina
-      </h3>
-      <div className="flex gap-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Např. L1"
-          required
-          className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
-        />
-        <button
-          disabled={busy}
-          className="subject-button !px-3 !py-1.5 text-sm disabled:opacity-60 font-semibold"
-        >
-          {busy ? "…" : "Vytvořit"}
-        </button>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
+      >
+        <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
+          <h3 className="font-display text-lg font-bold text-foreground">
+            {mode === "create" ? "Nová učební skupina" : `Členové skupiny ${existingGroup?.name}`}
+          </h3>
+          <button
+            onClick={onClose}
+            aria-label="Zavřít"
+            className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6">
+          {mode === "create" && (
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Název skupiny, např. L1"
+              autoFocus
+              className="mb-4 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            />
+          )}
+
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Klikněte na studenty, kteří budou ve skupině ({selected.length})
+          </p>
+          {students.length > 6 && (
+            <div className="relative mb-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Filtrovat podle jména…"
+                className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
+              />
+              <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+            </div>
+          )}
+
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+            {filtered.length === 0 ? (
+              <p className="p-3 text-sm text-muted-foreground italic">Nikdo neodpovídá hledání.</p>
+            ) : (
+              <ul className="divide-y divide-border/60">
+                {filtered.map((s) => {
+                  const isChecked = selected.includes(s.id);
+                  const existingGroupName = groupOf.get(s.id);
+                  const inOtherGroup =
+                    existingGroupName && existingGroupName !== existingGroup?.name;
+                  return (
+                    <li key={s.id}>
+                      <label className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm hover:bg-accent/40">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggle(s.id)}
+                          className="h-4 w-4 accent-current text-subject"
+                        />
+                        <span className="flex-1 text-foreground">{s.name}</span>
+                        {inOtherGroup && (
+                          <span className="text-[10px] text-muted-foreground">
+                            v {existingGroupName}
+                          </span>
+                        )}
+                        {notEnrolledIds.has(s.id) && (
+                          <span className="text-[10px] text-muted-foreground">(zapsat)</span>
+                        )}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {error && <p className="mt-3 text-xs text-red-600">{error}</p>}
+        </div>
+
+        <footer className="flex justify-end gap-2 border-t border-border bg-muted/30 px-6 py-3">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-border bg-surface px-3.5 py-1.5 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            Zrušit
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy}
+            className="subject-button rounded-lg px-3.5 py-1.5 text-sm font-semibold disabled:opacity-60"
+          >
+            {busy ? "Ukládám…" : mode === "create" ? "Vytvořit skupinu" : "Uložit členy"}
+          </button>
+        </footer>
       </div>
-    </form>
+    </div>
   );
 }
 
-function EnrolledStudentsList({ data }: { data: SubjectGroupsData }) {
+function EnrolledStudentsList({
+  data,
+  groupFilter,
+  onGroupFilterChange,
+}: {
+  data: SubjectGroupsData;
+  groupFilter: string;
+  onGroupFilterChange: (v: string) => void;
+}) {
   const router = useRouter();
   const unenroll = useServerFn(unenrollStudent);
   const [busy, setBusy] = useState(false);
@@ -552,7 +660,6 @@ function EnrolledStudentsList({ data }: { data: SubjectGroupsData }) {
     }
   };
 
-  // Gather all enrolled students and map their groups
   const groupsByUser = new Map<string, string[]>();
   for (const g of data.studyGroups) {
     for (const m of g.members) {
@@ -564,33 +671,55 @@ function EnrolledStudentsList({ data }: { data: SubjectGroupsData }) {
 
   const enrolledStudentsMap = new Map<string, string>();
   for (const g of data.studyGroups) {
-    for (const m of g.members) {
-      enrolledStudentsMap.set(m.id, m.name);
-    }
+    for (const m of g.members) enrolledStudentsMap.set(m.id, m.name);
   }
-  for (const s of data.unassigned) {
-    enrolledStudentsMap.set(s.id, s.name);
-  }
+  for (const s of data.unassigned) enrolledStudentsMap.set(s.id, s.name);
 
-  const enrolledStudents = Array.from(enrolledStudentsMap.entries()).map(([id, name]) => ({
+  let enrolledStudents = Array.from(enrolledStudentsMap.entries()).map(([id, name]) => ({
     id,
     name,
     groups: groupsByUser.get(id) ?? [],
   }));
 
-  // Sort by name
+  if (groupFilter === "none") {
+    enrolledStudents = enrolledStudents.filter((s) => s.groups.length === 0);
+  } else if (groupFilter !== "all") {
+    enrolledStudents = enrolledStudents.filter((s) => s.groups.includes(groupFilter));
+  }
+
   enrolledStudents.sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="surface-card p-5 mt-5">
-      <h3 className="flex items-center gap-2 font-display font-semibold text-foreground">
-        <Users2 className="h-4.5 w-4.5 text-subject" /> Zapsaní studenti ({enrolledStudents.length})
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="flex items-center gap-2 font-display font-semibold text-foreground">
+          <Users2 className="h-4.5 w-4.5 text-subject" /> Zapsaní studenti (
+          {enrolledStudents.length})
+        </h3>
+        {data.studyGroups.length > 0 && (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            Skupina:
+            <select
+              value={groupFilter}
+              onChange={(e) => onGroupFilterChange(e.target.value)}
+              className="rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+            >
+              <option value="all">Všechny</option>
+              {data.studyGroups.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))}
+              <option value="none">Bez skupiny</option>
+            </select>
+          </label>
+        )}
+      </div>
       <p className="mt-1 text-xs text-muted-foreground mb-4">Všichni studenti v kurzu.</p>
 
       {enrolledStudents.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
-          V kurzu zatím nejsou zapsaní žádní studenti.
+          Žádní studenti neodpovídají zvolenému filtru.
         </p>
       ) : (
         <div className="overflow-x-auto">
