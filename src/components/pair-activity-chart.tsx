@@ -1,44 +1,44 @@
 import type { PairActivityLane } from "@/lib/types";
 
 // Binary step ("skokový") chart: did each person upload something that week —
-// yes or no, never a count. One stepped line per lane, stacked; the first
-// lane carries the --subject accent, the rest are de-emphasized gray, so
-// exactly two people (a pair) always read clearly without a categorical
-// palette or CVD validation.
+// yes or no, never a count. All lanes share one axis (uploaded / not
+// uploaded) so overlapping weeks read as "same" at a glance; a small
+// per-lane jitter keeps both lines visible even when they fully coincide,
+// each in its own clearly-visible categorical color (never a pale gray).
 
 const COL_W = 48;
-const LANE_H = 28;
-const LANE_GAP = 6;
-const HIGH_Y = 6;
-const LOW_Y = 20;
+const BAND_H = 40;
+const HIGH_Y = 8;
+const LOW_Y = 32;
+const JITTER_STEP = 3;
 const DOT_R = 4;
 
 const LANE_STYLE = [
   { stroke: "stroke-subject", fill: "fill-subject", bg: "bg-subject" },
   {
-    stroke: "stroke-slate-300 dark:stroke-slate-600",
-    fill: "fill-slate-300 dark:fill-slate-600",
-    bg: "bg-slate-300 dark:bg-slate-600",
+    stroke: "stroke-blue-500 dark:stroke-blue-400",
+    fill: "fill-blue-500 dark:fill-blue-400",
+    bg: "bg-blue-500 dark:bg-blue-400",
   },
   {
-    stroke: "stroke-slate-400 dark:stroke-slate-500",
-    fill: "fill-slate-400 dark:fill-slate-500",
-    bg: "bg-slate-400 dark:bg-slate-500",
+    stroke: "stroke-amber-500 dark:stroke-amber-400",
+    fill: "fill-amber-500 dark:fill-amber-400",
+    bg: "bg-amber-500 dark:bg-amber-400",
   },
 ];
 
-function laneY(offsetY: number, uploaded: boolean): number {
-  return offsetY + (uploaded ? HIGH_Y : LOW_Y);
+function laneY(jitter: number, uploaded: boolean): number {
+  return jitter + (uploaded ? HIGH_Y : LOW_Y);
 }
 
 /** Builds the SVG path for one lane's step line across all weeks. */
-function stepPath(levels: boolean[], offsetY: number): string {
-  let d = `M 0 ${laneY(offsetY, levels[0])}`;
+function stepPath(levels: boolean[], jitter: number): string {
+  let d = `M 0 ${laneY(jitter, levels[0])}`;
   levels.forEach((level, i) => {
     const xEnd = (i + 1) * COL_W;
     d += ` H ${xEnd}`;
     if (i < levels.length - 1 && level !== levels[i + 1]) {
-      d += ` V ${laneY(offsetY, levels[i + 1])}`;
+      d += ` V ${laneY(jitter, levels[i + 1])}`;
     }
   });
   return d;
@@ -58,7 +58,8 @@ export function PairActivityChart({
   if (n === 0) return null;
 
   const width = n * COL_W;
-  const height = lanes.length * LANE_H + (lanes.length - 1) * LANE_GAP;
+  const height = BAND_H;
+  const mid = (lanes.length - 1) / 2;
 
   const summary = lanes
     .map(
@@ -95,13 +96,13 @@ export function PairActivityChart({
         aria-label={title ? `${title}. ${summary}` : summary}
       >
         {lanes.map((lane, i) => {
-          const offsetY = i * (LANE_H + LANE_GAP);
+          const jitter = (i - mid) * JITTER_STEP;
           const levels = lane.weeks.map((w) => w.count > 0);
           const style = LANE_STYLE[i % LANE_STYLE.length];
           return (
             <g key={lane.name}>
               <path
-                d={stepPath(levels, offsetY)}
+                d={stepPath(levels, jitter)}
                 className={style.stroke}
                 fill="none"
                 strokeWidth={2}
@@ -114,7 +115,7 @@ export function PairActivityChart({
                     <circle
                       key={w}
                       cx={(w + 0.5) * COL_W}
-                      cy={laneY(offsetY, true)}
+                      cy={laneY(jitter, true)}
                       r={DOT_R}
                       className={style.fill}
                     >
@@ -124,23 +125,19 @@ export function PairActivityChart({
                     </circle>
                   ),
               )}
-              {lane.weeks.map((w, wi) => (
-                <rect
-                  key={w.weekStart}
-                  x={wi * COL_W}
-                  y={offsetY}
-                  width={COL_W}
-                  height={LANE_H}
-                  fill="transparent"
-                >
-                  <title>
-                    {lane.name} — {w.label}: {w.count > 0 ? "nahráno" : "bez nahrání"}
-                  </title>
-                </rect>
-              ))}
             </g>
           );
         })}
+
+        {/* One transparent hit-area per week, combining every lane's status
+            into a single hover tooltip (drawn last so it sits on top). */}
+        {weeks.map((w, wi) => (
+          <rect key={w.weekStart} x={wi * COL_W} y={0} width={COL_W} height={height} fill="transparent">
+            <title>
+              {w.label}: {lanes.map((l) => `${l.name} ${l.weeks[wi].count > 0 ? "nahráno" : "bez nahrání"}`).join(", ")}
+            </title>
+          </rect>
+        ))}
       </svg>
 
       <div className="mt-1 flex text-[9px] leading-none text-muted-foreground">
