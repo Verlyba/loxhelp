@@ -13,8 +13,12 @@ import {
   X,
   ClipboardPaste,
   Bell,
-  FileText,
   Upload,
+  Users2,
+  BookOpen,
+  FileUp,
+  ChevronDown,
+  Search,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getClasses } from "@/lib/data";
@@ -35,6 +39,9 @@ import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
 import { PageShell } from "@/components/page-shell";
 import { PasswordReveal } from "@/components/password-reveal";
+import { ModalBackdrop } from "@/components/modal-backdrop";
+import type { SubjectTheme } from "@/lib/roles";
+import { INITIAL_PASSWORD } from "@/lib/constants";
 
 export const Route = createFileRoute("/classes")({
   beforeLoad: ({ context }) => {
@@ -42,7 +49,7 @@ export const Route = createFileRoute("/classes")({
   },
   loader: () => getClasses(),
   head: () => ({
-    meta: [{ title: "Třídy — Školka" }],
+    meta: [{ title: "Třídy — Shtroodle" }],
   }),
   component: ClassesPage,
 });
@@ -54,8 +61,14 @@ function ClassesPage() {
   const data = Route.useLoaderData() as ClassesData;
   const [showArchived, setShowArchived] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [query, setQuery] = useState("");
 
-  const list = data.classes.filter((c) => c.isArchived === showArchived);
+  const q = query.trim().toLowerCase();
+  const list = data.classes
+    .filter((c) => c.isArchived === showArchived)
+    .filter(
+      (c) => !q || c.name.toLowerCase().includes(q) || c.schoolYear.toLowerCase().includes(q),
+    );
 
   return (
     <PageShell
@@ -89,9 +102,26 @@ function ClassesPage() {
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="grid content-start gap-4">
+          {data.classes.filter((c) => c.isArchived === showArchived).length > 4 && (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Hledat třídu podle názvu nebo ročníku…"
+                className="w-full rounded-lg border border-border bg-surface py-2 pl-9 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring/40"
+              />
+            </div>
+          )}
+
           {list.length === 0 ? (
             <p className="text-muted-foreground">
-              {showArchived ? "Žádné archivované třídy." : "Žádné aktivní třídy."}
+              {q
+                ? `Žádná třída neodpovídá hledání „${query}“.`
+                : showArchived
+                  ? "Žádné archivované třídy."
+                  : "Žádné aktivní třídy."}
             </p>
           ) : (
             list.map((c) => (
@@ -184,18 +214,25 @@ function ClassCard({
     });
   };
 
+  const totalAssignments = cls.subjects.reduce((n, s) => n + s.assignmentCount, 0);
+
   return (
-    <div className="surface-card overflow-hidden">
-      <div className="h-1.5 w-full bg-subject" />
-      <div className="p-5">
-        {/* Header row: name + actions */}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+    <div
+      className={`surface-card overflow-hidden transition-shadow hover:shadow-elevated ${cls.isArchived ? "opacity-80" : ""}`}
+    >
+      <div className="flex items-start gap-4 border-b border-border/70 bg-muted/10 p-5">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-subject text-lg font-extrabold text-[color:var(--subject-foreground)] shadow-sm select-none">
+          {cls.name.slice(0, 2).toUpperCase()}
+        </span>
+
+        <div className="min-w-0 flex-1">
           {editing ? (
             <div className="flex flex-wrap items-center gap-2">
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className={`${inputCls} w-28 font-semibold`}
+                autoFocus
               />
               <input
                 value={schoolYear}
@@ -223,55 +260,84 @@ function ClassCard({
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <h3 className="font-display text-lg font-semibold">{cls.name}</h3>
-              <span className="subject-chip">{cls.schoolYear}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <h3 className="font-display text-lg font-semibold">{cls.name}</h3>
+                <span className="subject-chip">{cls.schoolYear}</span>
+                {cls.isArchived && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <Archive className="h-3 w-3" /> Archiv
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setEditing(true)}
+                  title="Upravit název a rok"
+                  aria-label="Upravit třídu"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                {cls.isArchived ? (
+                  <button
+                    onClick={() =>
+                      run(() => archiveFn({ data: { id: cls.id, isArchived: false } }))
+                    }
+                    title="Obnovit z archivu"
+                    aria-label="Obnovit"
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => run(() => archiveFn({ data: { id: cls.id, isArchived: true } }))}
+                    title="Archivovat (konec školního roku)"
+                    aria-label="Archivovat"
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={handleDelete}
+                  title="Smazat třídu"
+                  aria-label="Smazat třídu"
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 cursor-pointer"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
           )}
 
-          {!editing && (
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={() => setEditing(true)}
-                title="Upravit název a rok"
-                aria-label="Upravit třídu"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </button>
-              {cls.isArchived ? (
-                <button
-                  onClick={() => run(() => archiveFn({ data: { id: cls.id, isArchived: false } }))}
-                  title="Obnovit z archivu"
-                  aria-label="Obnovit"
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </button>
-              ) : (
-                <button
-                  onClick={() => run(() => archiveFn({ data: { id: cls.id, isArchived: true } }))}
-                  title="Archivovat (konec školního roku)"
-                  aria-label="Archivovat"
-                  className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <button
-                onClick={handleDelete}
-                title="Smazat třídu"
-                aria-label="Smazat třídu"
-                className="rounded-md p-1.5 text-muted-foreground hover:bg-red-50 hover:text-red-600 cursor-pointer"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
+          {/* Quick stats */}
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <Users2 className="h-3.5 w-3.5" /> {cls.studentCount}{" "}
+              {cls.studentCount === 1 ? "student" : cls.studentCount < 5 ? "studenti" : "studentů"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <BookOpen className="h-3.5 w-3.5" /> {cls.subjects.length}{" "}
+              {cls.subjects.length === 1
+                ? "předmět"
+                : cls.subjects.length < 5
+                  ? "předměty"
+                  : "předmětů"}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <FileUp className="h-3.5 w-3.5" /> {totalAssignments}{" "}
+              {totalAssignments === 1 ? "úkol" : totalAssignments < 5 ? "úkoly" : "úkolů"}
+            </span>
+          </div>
         </div>
+      </div>
 
+      <div className="p-5">
         {/* Subjects */}
-        <div className="mt-3 flex flex-wrap gap-1.5 items-center">
+        <SectionHeader icon={BookOpen} label="Předměty" />
+        <div className="mt-2 flex flex-wrap gap-1.5 items-center">
           {cls.subjects.map((s) => (
             <Link
               key={s.id}
@@ -281,6 +347,9 @@ function ClassCard({
               className="rounded-full bg-subject-soft px-2.5 py-0.5 text-xs font-medium ring-1 ring-subject/30 hover:opacity-80"
             >
               {s.name}
+              {s.assignmentCount > 0 && (
+                <span className="ml-1 text-subject/70">· {s.assignmentCount}</span>
+              )}
             </Link>
           ))}
           {cls.subjects.length === 0 && (
@@ -295,12 +364,19 @@ function ClassCard({
         <ClassNotificationsSection cls={cls} />
 
         {/* Students */}
-        <button
-          onClick={() => setShowStudents((v) => !v)}
-          className="mt-4 text-sm font-medium text-subject underline underline-offset-2 hover:opacity-80 cursor-pointer"
-        >
-          {showStudents ? "Skrýt studenty" : `Studenti (${cls.studentCount})`}
-        </button>
+        <div className="mt-4 border-t border-border pt-4">
+          <button
+            onClick={() => setShowStudents((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 text-sm font-semibold text-foreground cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5">
+              <Users2 className="h-4 w-4 text-subject" /> Studenti ({cls.studentCount})
+            </span>
+            <ChevronDown
+              className={`h-4 w-4 text-muted-foreground transition-transform ${showStudents ? "rotate-180" : ""}`}
+            />
+          </button>
+        </div>
 
         {showStudents && (
           <div className="mt-2 rounded-lg border border-border">
@@ -419,6 +495,20 @@ function ClassCard({
   );
 }
 
+function SectionHeader({
+  icon: Icon,
+  label,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+}) {
+  return (
+    <h4 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+      <Icon className="h-4 w-4 text-subject" /> {label}
+    </h4>
+  );
+}
+
 function ClassSubjectsAssign({
   cls,
   allSubjects,
@@ -446,7 +536,7 @@ function ClassSubjectsAssign({
           id: sub.id,
           name: sub.name,
           description: sub.description,
-          themeStyle: sub.theme as "loxone" | "cad3d" | "default",
+          themeStyle: sub.theme as SubjectTheme,
           classId: cls.id,
         },
       });
@@ -661,7 +751,7 @@ function CreateClass() {
 
 /**
  * Creates a brand-new student directly inside the class's student list.
- * No password entry — the server generates one and it is shown exactly once.
+ * No password entry — the account starts on the shared initial password.
  */
 function NewStudentInline({ classId, className }: { classId: string; className: string }) {
   const router = useRouter();
@@ -684,7 +774,7 @@ function NewStudentInline({ classId, className }: { classId: string; className: 
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await create({
+      await create({
         data: {
           firstName,
           lastName,
@@ -694,11 +784,7 @@ function NewStudentInline({ classId, className }: { classId: string; className: 
         },
       });
       await router.invalidate();
-      if (res.generatedPassword) {
-        setReveal({ name: `${firstName} ${lastName}`, password: res.generatedPassword });
-      } else {
-        toast.success(`Žák ${firstName} ${lastName} přidán do ${className}.`);
-      }
+      setReveal({ name: `${firstName} ${lastName}`, password: INITIAL_PASSWORD });
       setFirstName("");
       setLastName("");
       setEmail("");
@@ -789,7 +875,7 @@ function Modal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <ModalBackdrop onClose={onClose} ariaLabel={title}>
       <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]">
         <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
           <h3 className="font-display text-lg font-bold">{title}</h3>
@@ -804,7 +890,7 @@ function Modal({
         </header>
         <div className="p-6">{children}</div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

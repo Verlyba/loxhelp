@@ -20,6 +20,11 @@ import {
   BookOpen,
   Network,
   Layers,
+  ChevronUp,
+  ChevronDown,
+  ListChecks,
+  Type,
+  LayoutGrid,
 } from "lucide-react";
 import {
   updateSubjectPage,
@@ -29,6 +34,10 @@ import {
   deleteCourseFile,
   updateCourseFile,
   setCourseFilePublished,
+  createPageBlock,
+  updatePageBlockContent,
+  deletePageBlock,
+  movePageBlock,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -42,9 +51,13 @@ import {
   type SubjectFileItem,
   type TargetType,
   type TaskStatus,
+  type PageBlockView,
+  type BlockType,
 } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { ModalBackdrop } from "@/components/modal-backdrop";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 
 const subjectRoute = getRouteApi("/subjects/$slug");
 
@@ -54,137 +67,459 @@ export function SubjectPageView({ page }: { page: SubjectPageDetail }) {
   return <ContentPage page={page} />;
 }
 
-/* ---------- plain content page (markdown-lite) ---------- */
+/* ---------- plain content page: an ordered list of freely-arranged blocks ---------- */
+
+const BLOCK_META: Record<
+  BlockType,
+  { label: string; icon: React.ComponentType<{ className?: string }> }
+> = {
+  TEXT: { label: "Text", icon: Type },
+  MATERIALS: { label: "Materiály", icon: FolderOpen },
+  ASSIGNMENTS: { label: "Úkoly", icon: ListChecks },
+};
 
 function ContentPage({ page }: { page: SubjectPageDetail }) {
   const user = useUser();
   const staff = !!user && isStaff(user.role);
-  const [editing, setEditing] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editLayout, setEditLayout] = useState(false);
   const subject = subjectRoute.useLoaderData() as SubjectDetail;
+
+  const usedTypes = new Set(page.blocks.map((b) => b.type));
 
   return (
     <article className="surface-card p-6 sm:p-8">
       <header className="mb-5 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="font-display text-2xl font-semibold">{page.title}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Aktualizováno {formatDateTime(page.updatedAt)}
-          </p>
+        <div className="min-w-0 flex-1">
+          {editingTitle ? (
+            <PageTitleEditor page={page} onDone={() => setEditingTitle(false)} />
+          ) : (
+            <>
+              <h2 className="font-display text-2xl font-semibold">{page.title}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Aktualizováno {formatDateTime(page.updatedAt)}
+              </p>
+            </>
+          )}
         </div>
-        {staff && !editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <Pencil className="h-3.5 w-3.5" /> Upravit
-          </button>
+        {staff && !editingTitle && (
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => setEditingTitle(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Pencil className="h-3.5 w-3.5" /> Přejmenovat
+            </button>
+            <button
+              onClick={() => setEditLayout((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors ${
+                editLayout
+                  ? "border-subject/50 bg-subject-soft text-subject"
+                  : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" /> {editLayout ? "Hotovo" : "Upravit rozložení"}
+            </button>
+          </div>
         )}
       </header>
 
-      {editing ? (
-        <PageEditor page={page} onDone={() => setEditing(false)} />
+      {page.blocks.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          <FileText className="mx-auto mb-2 h-6 w-6" />
+          Tahle stránka je zatím prázdná.
+          {staff && ' Klikněte na "Upravit rozložení" a přidejte první blok.'}
+        </p>
       ) : (
-        <>
-          {page.content.trim() ? (
-            <MarkdownLite text={page.content} />
-          ) : (
-            <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              <FileText className="mx-auto mb-2 h-6 w-6" />
-              Tahle stránka je zatím prázdná.
-              {staff && " Klikněte na Upravit a napište obsah."}
-            </p>
-          )}
-
-          {page.files && page.files.length > 0 && (
-            <div className="mt-8 border-t border-border pt-6">
-              <h3 className="font-display text-lg font-semibold mb-4 text-foreground">
-                Pracovní soubory a podklady
-              </h3>
-              <FileGrid files={page.files} />
-            </div>
-          )}
-
-          {/* Linked assignments list */}
-          {(page.showAssignments || (staff && page.assignments && page.assignments.length > 0)) && (
-            <div className="mt-8 border-t border-border pt-6">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="font-display text-lg font-semibold text-foreground">
-                  Úkoly k odevzdání
-                </h3>
-                {staff && <CreateAssignment subjectId={subject.id} pageId={page.id} />}
-              </div>
-              {!page.assignments || page.assignments.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                  Zatím žádné úkoly pod touto stránkou.
-                </p>
-              ) : (
-                <ul className="grid gap-3">
-                  {page.assignments.map((a) => (
-                    <li key={a.id}>
-                      <Link
-                        to="/subjects/$slug/assignments/$aid"
-                        params={{ slug: subject.slug, aid: a.id }}
-                        className="surface-card grid items-center gap-3 p-5 transition-shadow hover:shadow-[var(--shadow-elevated)] sm:grid-cols-[minmax(0,1fr)_auto_150px]"
-                      >
-                        <div className="min-w-0">
-                          <p className="font-medium">{a.title}</p>
-                          <p className="text-sm text-muted-foreground line-clamp-1">
-                            {a.description}
-                          </p>
-                        </div>
-                        <div className="flex items-center justify-end text-sm">
-                          <AssignmentBadge a={a} staff={staff} />
-                        </div>
-                        <span className="mono text-sm text-muted-foreground sm:text-right">
-                          {formatDateTime(a.dueAt)}
-                        </span>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-
-          {/* Staff: manage materials directly on the page (no need to open the editor) */}
-          {staff && <MaterialsManager page={page} />}
-        </>
+        <div className="space-y-3">
+          {page.blocks.map((block, i) => (
+            <PageBlockRenderer
+              key={block.id}
+              block={block}
+              page={page}
+              subject={subject}
+              staff={staff}
+              editLayout={editLayout}
+              isFirst={i === 0}
+              isLast={i === page.blocks.length - 1}
+            />
+          ))}
+        </div>
       )}
+
+      {staff && editLayout && <AddBlockBar pageId={page.id} usedTypes={usedTypes} />}
     </article>
   );
 }
 
-/** Collapsible materials admin visible to staff right on the page. */
-function MaterialsManager({ page }: { page: SubjectPageDetail }) {
-  const [open, setOpen] = useState(page.files.length === 0);
+function PageTitleEditor({ page, onDone }: { page: SubjectPageDetail; onDone: () => void }) {
+  const router = useRouter();
+  const update = useServerFn(updateSubjectPage);
+  const [title, setTitle] = useState(page.title);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    if (!title.trim()) return;
+    setBusy(true);
+    try {
+      await update({ data: { id: page.id, title } });
+      await router.invalidate();
+      onDone();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="mt-8 rounded-xl border border-dashed border-border">
+    <div className="flex items-center gap-2">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        autoFocus
+        className="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-2 font-display text-lg font-semibold outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
+      />
       <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-foreground hover:bg-accent/40"
+        onClick={save}
+        disabled={busy}
+        aria-label="Uložit název"
+        className="rounded-md bg-primary p-1.5 text-primary-foreground disabled:opacity-60 cursor-pointer"
       >
-        <span className="flex items-center gap-2">
-          <FolderOpen className="h-4 w-4 text-subject" />
-          Spravovat materiály ({page.files.length})
-        </span>
-        <span className="text-xs font-normal text-muted-foreground">
-          {open ? "skrýt" : "přidat / upravit / smazat"}
-        </span>
+        <Check className="h-4 w-4" />
       </button>
-      {open && (
-        <div className="space-y-3 border-t border-border p-4">
-          {page.files.length > 0 && (
-            <div className="grid gap-2">
-              {page.files.map((file) => (
-                <FileEditRow key={file.id} file={file} />
-              ))}
-            </div>
-          )}
-          <UploadFileForm pageId={page.id} />
+      <button
+        onClick={onDone}
+        aria-label="Zrušit"
+        className="rounded-md border border-border p-1.5 text-muted-foreground hover:bg-accent cursor-pointer"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+/** One block's chrome (edit-layout toolbar) + its type-specific content. */
+function PageBlockRenderer({
+  block,
+  page,
+  subject,
+  staff,
+  editLayout,
+  isFirst,
+  isLast,
+}: {
+  block: PageBlockView;
+  page: SubjectPageDetail;
+  subject: SubjectDetail;
+  staff: boolean;
+  editLayout: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+}) {
+  const router = useRouter();
+  const move = useServerFn(movePageBlock);
+  const del = useServerFn(deletePageBlock);
+  const [busy, setBusy] = useState(false);
+  const { confirm } = useDialog();
+
+  const handleMove = async (direction: "up" | "down") => {
+    setBusy(true);
+    try {
+      await move({ data: { id: block.id, direction } });
+      await router.invalidate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: `Smazat blok „${BLOCK_META[block.type].label}“?`,
+      message:
+        block.type === "TEXT"
+          ? "Text bloku bude trvale smazán."
+          : "Blok bude odebrán ze stránky. Soubory / úkoly samotné zůstanou zachovány.",
+      danger: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await del({ data: block.id });
+      await router.invalidate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const Icon = BLOCK_META[block.type].icon;
+
+  return (
+    <div className={editLayout ? "rounded-xl border border-dashed border-border p-3" : ""}>
+      {editLayout && (
+        <div className="mb-2.5 flex items-center justify-between gap-2 text-xs">
+          <span className="inline-flex items-center gap-1.5 font-semibold text-muted-foreground">
+            <Icon className="h-3.5 w-3.5 text-subject" /> {BLOCK_META[block.type].label}
+          </span>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => handleMove("up")}
+              disabled={busy || isFirst}
+              aria-label="Posunout blok nahoru"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 cursor-pointer"
+            >
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => handleMove("down")}
+              disabled={busy || isLast}
+              aria-label="Posunout blok dolů"
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 cursor-pointer"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={busy}
+              aria-label="Smazat blok"
+              className="rounded p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       )}
+
+      {block.type === "TEXT" && <TextBlock block={block} staff={staff} />}
+      {block.type === "MATERIALS" && <MaterialsBlock page={page} staff={staff} />}
+      {block.type === "ASSIGNMENTS" && (
+        <AssignmentsBlock page={page} subject={subject} staff={staff} />
+      )}
+    </div>
+  );
+}
+
+function TextBlock({ block, staff }: { block: PageBlockView; staff: boolean }) {
+  const router = useRouter();
+  const update = useServerFn(updatePageBlockContent);
+  const [editing, setEditing] = useState(false);
+  const [content, setContent] = useState(block.content);
+  const [busy, setBusy] = useState(false);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await update({ data: { id: block.id, content } });
+      await router.invalidate();
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="grid gap-2.5">
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={10}
+          placeholder={"# Nadpis\n\nOdstavec textu…\n\n## Podnadpis\n\n- odrážka\n- další odrážka"}
+          autoFocus
+          className="mono rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
+        />
+        <p className="text-xs text-muted-foreground">
+          Formátování: # nadpis, ## podnadpis, - odrážky, **tučně**, [odkaz](https://...),
+          ![obrázek](https://...).
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={save}
+            disabled={busy}
+            className="subject-button inline-flex items-center gap-1.5 !py-1.5 !px-3 text-xs disabled:opacity-60"
+          >
+            <Check className="h-3.5 w-3.5" /> {busy ? "Ukládám…" : "Uložit text"}
+          </button>
+          <button
+            onClick={() => {
+              setContent(block.content);
+              setEditing(false);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs bg-surface hover:bg-muted text-foreground"
+          >
+            <X className="h-3.5 w-3.5" /> Zrušit
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group relative">
+      {block.content.trim() ? (
+        <MarkdownLite text={block.content} />
+      ) : (
+        <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          Prázdný textový blok.
+        </p>
+      )}
+      {staff && (
+        <button
+          onClick={() => setEditing(true)}
+          className="absolute right-0 top-0 inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground cursor-pointer"
+        >
+          <Pencil className="h-3 w-3" /> Upravit text
+        </button>
+      )}
+    </div>
+  );
+}
+
+function MaterialsBlock({ page, staff }: { page: SubjectPageDetail; staff: boolean }) {
+  const [managing, setManaging] = useState(page.files.length === 0);
+
+  if (staff && managing) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between border-b border-border/60 pb-3">
+          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <FolderOpen className="h-4 w-4 text-subject" />
+            Správa souborů ({page.files.length})
+          </span>
+          <button
+            type="button"
+            onClick={() => setManaging(false)}
+            className="text-xs font-semibold text-subject hover:underline cursor-pointer"
+          >
+            Zpět na náhled
+          </button>
+        </div>
+
+        {page.files.length > 0 ? (
+          <div className="divide-y divide-border/60 rounded-xl border border-border bg-card/20 overflow-hidden shadow-sm">
+            {page.files.map((file) => (
+              <FileEditRow key={file.id} file={file} />
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+            Zatím žádné soubory na této stránce.
+          </p>
+        )}
+
+        <UploadFileForm pageId={page.id} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {page.files.length > 0 ? (
+        <FileGrid files={page.files} />
+      ) : (
+        <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          Zatím žádné materiály.
+        </p>
+      )}
+      {staff && (
+        <div className="mt-4 border-t border-border/60 pt-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setManaging(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground cursor-pointer transition-colors"
+          >
+            <FolderOpen className="h-3.5 w-3.5 text-subject" />
+            Spravovat soubory ({page.files.length})
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssignmentsBlock({
+  page,
+  subject,
+  staff,
+}: {
+  page: SubjectPageDetail;
+  subject: SubjectDetail;
+  staff: boolean;
+}) {
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-display text-base font-semibold text-foreground">Úkoly k odevzdání</h3>
+        {staff && <CreateAssignment subjectId={subject.id} pageId={page.id} />}
+      </div>
+      {!page.assignments || page.assignments.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+          Zatím žádné úkoly pod touto stránkou.
+        </p>
+      ) : (
+        <ul className="grid gap-3">
+          {page.assignments.map((a) => (
+            <li key={a.id}>
+              <Link
+                to="/subjects/$slug/assignments/$aid"
+                params={{ slug: subject.slug, aid: a.id }}
+                className="surface-card grid items-center gap-3 p-5 transition-shadow hover:shadow-[var(--shadow-elevated)] sm:grid-cols-[minmax(0,1fr)_auto_150px]"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium">{a.title}</p>
+                  <p className="text-sm text-muted-foreground line-clamp-1">{a.description}</p>
+                </div>
+                <div className="flex items-center justify-end text-sm">
+                  <AssignmentBadge a={a} staff={staff} />
+                </div>
+                <span className="mono text-sm text-muted-foreground sm:text-right">
+                  {formatDateTime(a.dueAt)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function AddBlockBar({ pageId, usedTypes }: { pageId: string; usedTypes: Set<BlockType> }) {
+  const router = useRouter();
+  const create = useServerFn(createPageBlock);
+  const [busy, setBusy] = useState<BlockType | null>(null);
+
+  const add = async (type: BlockType) => {
+    setBusy(type);
+    try {
+      await create({ data: { pageId, type } });
+      await router.invalidate();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border pt-4">
+      <span className="text-xs font-semibold text-muted-foreground">Přidat blok:</span>
+      {(Object.keys(BLOCK_META) as BlockType[]).map((type) => {
+        const meta = BLOCK_META[type];
+        const Icon = meta.icon;
+        // MATERIALS/ASSIGNMENTS render the page's whole file/assignment list —
+        // a second one would just repeat the same content, so cap at one each.
+        const alreadyUsed = type !== "TEXT" && usedTypes.has(type);
+        return (
+          <button
+            key={type}
+            onClick={() => add(type)}
+            disabled={busy !== null || alreadyUsed}
+            title={alreadyUsed ? `Stránka už blok „${meta.label}“ má.` : undefined}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <Icon className="h-3.5 w-3.5 text-subject" />
+            {busy === type ? "Přidávám…" : meta.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -288,7 +623,7 @@ export function FileGrid({ files }: { files: SubjectFileItem[] }) {
           <div
             key={file.id}
             onClick={() => !isDownloading && handleDownload(file.id)}
-            className={`group flex items-center gap-3.5 rounded-xl border border-border/80 bg-surface/50 p-3.5 shadow-sm transition-all duration-300 cursor-pointer hover:shadow-md ${meta.borderClass}`}
+            className={`group flex min-w-0 items-center gap-3.5 rounded-xl border border-border/80 bg-surface/50 p-3.5 shadow-sm transition-all duration-300 cursor-pointer hover:shadow-md ${meta.borderClass}`}
           >
             {/* File Icon */}
             <div className="relative shrink-0">
@@ -339,73 +674,6 @@ export function FileGrid({ files }: { files: SubjectFileItem[] }) {
   );
 }
 
-function PageEditor({ page, onDone }: { page: SubjectPageDetail; onDone: () => void }) {
-  const router = useRouter();
-  const update = useServerFn(updateSubjectPage);
-  const [title, setTitle] = useState(page.title);
-  const [content, setContent] = useState(page.content);
-  const [showAssignments, setShowAssignments] = useState(page.showAssignments);
-  const [busy, setBusy] = useState(false);
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      await update({ data: { id: page.id, title, content, showAssignments } });
-      await router.invalidate();
-      onDone();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="grid gap-3">
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        className="rounded-md border border-input bg-background px-3 py-2 font-display text-lg font-semibold outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
-      />
-      <textarea
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-        rows={14}
-        placeholder={"# Nadpis\n\nOdstavec textu…\n\n## Podnadpis\n\n- odrážka\n- další odrážka"}
-        className="mono rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
-      />
-      <p className="text-xs text-muted-foreground">
-        Formátování: # nadpis, ## podnadpis, - odrážky, **tučně**, [odkaz](https://...),
-        ![obrázek](https://...).
-      </p>
-
-      <label className="flex items-center gap-2 text-sm font-semibold text-foreground cursor-pointer mt-1">
-        <input
-          type="checkbox"
-          checked={showAssignments}
-          onChange={(e) => setShowAssignments(e.target.checked)}
-          className="rounded border-input bg-background outline-none text-subject focus:ring-ring"
-        />
-        Zobrazit úkoly pod touto stránkou
-      </label>
-
-      <div className="flex gap-2 mt-4 border-t border-border pt-4">
-        <button
-          onClick={save}
-          disabled={busy}
-          className="subject-button inline-flex items-center gap-1.5 disabled:opacity-60"
-        >
-          <Check className="h-4 w-4" /> {busy ? "Ukládám…" : "Uložit stránku"}
-        </button>
-        <button
-          onClick={onDone}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm bg-surface hover:bg-muted text-foreground"
-        >
-          <X className="h-4 w-4" /> Zrušit
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function FileEditRow({ file }: { file: SubjectFileItem }) {
   const router = useRouter();
   const deleteFile = useServerFn(deleteCourseFile);
@@ -452,10 +720,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
 
   if (isEditing) {
     return (
-      <form
-        onSubmit={handleUpdate}
-        className="p-3 border border-border bg-muted/10 rounded-lg space-y-3"
-      >
+      <form onSubmit={handleUpdate} className="p-4 bg-muted/40 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="text-xs font-semibold text-muted-foreground">
             Název
@@ -463,7 +728,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               required
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none text-foreground"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/45"
             />
           </label>
           <label className="text-xs font-semibold text-muted-foreground">
@@ -471,7 +736,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none text-foreground"
+              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/45"
             >
               <option value="presentation">Prezentace</option>
               <option value="manual">Manuál</option>
@@ -488,18 +753,18 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Stručný popis (nepovinné)"
-            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none"
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/45"
           />
         </label>
         <div className="flex gap-2 justify-end">
           <button
             type="button"
             onClick={() => setIsEditing(false)}
-            className="px-2 py-1 rounded border border-border text-xs bg-surface text-foreground"
+            className="px-2.5 py-1 rounded border border-border text-xs bg-surface text-foreground hover:bg-muted transition-colors cursor-pointer"
           >
             Zrušit
           </button>
-          <button type="submit" disabled={busy} className="subject-button !px-2 !py-1 text-xs">
+          <button type="submit" disabled={busy} className="subject-button !px-2.5 !py-1 text-xs">
             Uložit
           </button>
         </div>
@@ -519,7 +784,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
   };
 
   return (
-    <div className="flex items-center justify-between gap-2 p-2.5 border border-border rounded-lg bg-card text-sm">
+    <div className="flex items-center justify-between gap-3 p-3 text-sm hover:bg-muted/30 transition-colors">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="font-semibold text-foreground truncate">{file.label}</p>
@@ -530,15 +795,15 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
           )}
         </div>
         <p className="text-xs text-muted-foreground truncate">
-          {file.fileName} · {file.category}
+          {file.fileName} · {CATEGORY_LABELS[file.category] || file.category}
         </p>
       </div>
-      <div className="flex shrink-0 gap-1">
+      <div className="flex shrink-0 gap-0.5">
         <button
           type="button"
           onClick={togglePublished}
           disabled={busy}
-          className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted disabled:opacity-50"
+          className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/70 disabled:opacity-50 cursor-pointer"
           title={file.isPublished ? "Skrýt (přepnout na koncept)" : "Zveřejnit studentům"}
           aria-label={file.isPublished ? "Skrýt materiál" : "Zveřejnit materiál"}
         >
@@ -547,7 +812,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
         <button
           type="button"
           onClick={() => setIsEditing(true)}
-          className="p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted"
+          className="p-1.5 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted/70 cursor-pointer"
           title="Upravit"
         >
           <Pencil className="h-4 w-4" />
@@ -556,7 +821,7 @@ function FileEditRow({ file }: { file: SubjectFileItem }) {
           type="button"
           onClick={handleDelete}
           disabled={busy}
-          className="p-1 text-red-500 hover:text-red-700 rounded hover:bg-red-50"
+          className="p-1.5 text-red-500 hover:text-red-700 rounded-md hover:bg-red-50/70 disabled:opacity-50 cursor-pointer"
           title="Smazat"
         >
           <Trash2 className="h-4 w-4" />
@@ -618,30 +883,32 @@ function UploadFileForm({ pageId }: { pageId: string }) {
   return (
     <form
       onSubmit={handleUpload}
-      className="p-3 border border-dashed border-border rounded-lg space-y-2.5 bg-muted/5"
+      className="p-4 border border-border/85 bg-muted/10 rounded-xl space-y-3.5 shadow-sm"
     >
-      <p className="text-xs font-semibold text-foreground">Přidat soubor</p>
+      <p className="text-xs font-bold text-foreground uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+        <Plus className="h-3.5 w-3.5 text-subject" /> Přidat soubor
+      </p>
 
       <input
         ref={fileRef}
         type="file"
         required
         onChange={handleFileChange}
-        className="block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-subject file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[color:var(--subject-foreground)] text-foreground"
+        className="block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-subject file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[color:var(--subject-foreground)] text-foreground cursor-pointer"
       />
 
-      <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
+      <div className="grid grid-cols-[1fr_130px] gap-2 items-end">
         <input
           type="text"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder="Název"
-          className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none"
+          placeholder="Název (vyplní se automaticky)"
+          className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/45"
         />
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none"
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/45 cursor-pointer"
         >
           <option value="material">Materiál</option>
           <option value="presentation">Prezentace</option>
@@ -655,11 +922,11 @@ function UploadFileForm({ pageId }: { pageId: string }) {
         type="text"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Popis (nepovinné)"
-        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-xs text-foreground outline-none"
+        placeholder="Popis materiálu (nepovinné)"
+        className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/45"
       />
 
-      {error && <p className="text-xs text-red-600">{error}</p>}
+      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
 
       <button
         type="submit"
@@ -667,7 +934,7 @@ function UploadFileForm({ pageId }: { pageId: string }) {
         className="subject-button inline-flex items-center gap-1.5 !py-1.5 !px-3 text-xs disabled:opacity-60"
       >
         <Upload className="h-3.5 w-3.5" />
-        {busy ? "Nahrávám…" : "Nahrát"}
+        {busy ? "Nahrávám…" : "Nahrát a zveřejnit"}
       </button>
     </form>
   );
@@ -882,7 +1149,7 @@ function CreateAssignment({ subjectId, pageId }: { subjectId: string; pageId?: s
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+        <ModalBackdrop onClose={() => setOpen(false)} ariaLabel="Nový úkol">
           <form
             onSubmit={submit}
             className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
@@ -925,13 +1192,7 @@ function CreateAssignment({ subjectId, pageId }: { subjectId: string; pageId?: s
 
               <label className="block text-xs font-semibold text-muted-foreground">
                 Termín odevzdání
-                <input
-                  type="datetime-local"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  required
-                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-                />
+                <DateTimePicker value={dueDate} onChange={setDueDate} required className="mt-1" />
               </label>
 
               <fieldset>
@@ -1050,7 +1311,7 @@ function CreateAssignment({ subjectId, pageId }: { subjectId: string; pageId?: s
               </button>
             </footer>
           </form>
-        </div>
+        </ModalBackdrop>
       )}
     </>
   );

@@ -1,6 +1,7 @@
 import { toast } from "sonner";
+import { ModalBackdrop } from "@/components/modal-backdrop";
 
-/** Shows a freshly generated password exactly once, with copy-to-clipboard. */
+/** Shows the shared initial password after account creation/reset, with copy-to-clipboard. */
 export function PasswordReveal({
   name,
   password,
@@ -20,13 +21,13 @@ export function PasswordReveal({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <ModalBackdrop onClose={onClose} ariaLabel="Účet vytvořen">
       <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]">
         <div className="p-6 text-center">
           <h3 className="font-display text-lg font-bold">Účet vytvořen</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Přihlašovací heslo pro <span className="font-semibold text-foreground">{name}</span> —
-            zobrazí se jen teď, předejte ho žákovi:
+            <span className="font-semibold text-foreground">{name}</span> dostal sdílené výchozí
+            heslo — při prvním přihlášení si ho bude muset změnit na vlastní:
           </p>
           <button
             onClick={copy}
@@ -36,7 +37,7 @@ export function PasswordReveal({
             {password}
           </button>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            Kliknutím na heslo ho zkopírujete. Později lze nastavit nové na kartě žáka.
+            Kliknutím na heslo ho zkopírujete. Po prvním přihlášení ho nikdo — ani vy — už neuvidí.
           </p>
         </div>
         <footer className="flex justify-center border-t border-border bg-muted/30 px-6 py-3">
@@ -48,6 +49,6 @@ export function PasswordReveal({
           </button>
         </footer>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }

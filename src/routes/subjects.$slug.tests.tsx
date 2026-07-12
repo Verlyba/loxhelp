@@ -15,6 +15,7 @@ import {
   Settings2,
   FileSpreadsheet,
   Users2,
+  Download,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getTestsList } from "@/lib/test-data";
@@ -25,7 +26,9 @@ import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { ModalBackdrop } from "@/components/modal-backdrop";
 import type { GradingSettingsView, MoodleTestSummary } from "@/lib/types";
+import { downloadTextFile } from "@/lib/download";
 
 export const Route = createFileRoute("/subjects/$slug/tests")({
   beforeLoad: ({ context }) => {
@@ -236,7 +239,11 @@ function GradingSettingsModal({
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm text-sm">
+        <ModalBackdrop
+          onClose={() => setOpen(false)}
+          ariaLabel="Nastavení hodnocení"
+          className="flex items-center justify-center p-4 text-sm"
+        >
           <form
             onSubmit={submit}
             className="w-full max-w-md rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
@@ -335,7 +342,7 @@ function GradingSettingsModal({
               </button>
             </footer>
           </form>
-        </div>
+        </ModalBackdrop>
       )}
     </>
   );
@@ -391,7 +398,11 @@ function ImportMoodleModal({ subjectId }: { subjectId: string }) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm text-sm">
+        <ModalBackdrop
+          onClose={() => setOpen(false)}
+          ariaLabel="Import výsledků z Moodle"
+          className="flex items-center justify-center p-4 text-sm"
+        >
           <form
             onSubmit={submit}
             className="w-full max-w-md rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
@@ -417,6 +428,22 @@ function ImportMoodleModal({ subjectId }: { subjectId: string }) {
                 Studenty systém přiřadí podle e-mailu, známka 1–5 se dopočítá podle nastavených
                 hranic.
               </p>
+
+              <button
+                type="button"
+                onClick={() =>
+                  downloadTextFile(
+                    "vzor-import-moodle.csv",
+                    "Příjmení;Jméno;E-mailová adresa;Zahájeno;Dokončeno;Doba trvání;Hodnocení/40,00\n" +
+                      "Nováková;Anna;anna@school.cz;6. března 2026  11.30;6. března 2026  11.55;25 min. 4 sek.;34,50\n" +
+                      "Kovář;Petr;petr@school.cz;6. března 2026  11.32;6. března 2026  12.01;29 min. 10 sek.;28,00\n",
+                  )
+                }
+                className="inline-flex w-fit items-center gap-1.5 rounded-md border border-dashed border-border bg-surface px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Stáhnout vzorový soubor — použijte jako předlohu, např. pro AI převod vlastních dat do tohoto formátu"
+              >
+                <Download className="h-3.5 w-3.5" /> Vzorový soubor
+              </button>
 
               <label className="block text-xs font-semibold text-muted-foreground">
                 Název (nepovinné, jinak název souboru)
@@ -459,7 +486,7 @@ function ImportMoodleModal({ subjectId }: { subjectId: string }) {
               </button>
             </footer>
           </form>
-        </div>
+        </ModalBackdrop>
       )}
     </>
   );
@@ -534,8 +561,15 @@ function TestCard({
     }
 
     return (
-      <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-        Odevzdáno {att.score !== null ? `(${att.score} b.)` : "(Čeká na ohodnocení)"}
+      <span className="inline-flex items-center gap-1.5">
+        <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+          Odevzdáno {att.score !== null ? `(${att.score} b.)` : "(Čeká na ohodnocení)"}
+        </span>
+        {att.isLate && (
+          <span className="inline-flex rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30">
+            Po limitu
+          </span>
+        )}
       </span>
     );
   };
@@ -650,7 +684,11 @@ function CreateTestModal({ subjectId }: { subjectId: string }) {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm text-sm">
+        <ModalBackdrop
+          onClose={() => setOpen(false)}
+          ariaLabel="Nový test"
+          className="flex items-center justify-center p-4 text-sm"
+        >
           <form
             onSubmit={submit}
             className="w-full max-w-lg rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
@@ -723,7 +761,7 @@ function CreateTestModal({ subjectId }: { subjectId: string }) {
               </button>
             </footer>
           </form>
-        </div>
+        </ModalBackdrop>
       )}
     </>
   );

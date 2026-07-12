@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, HelpCircle, X } from "lucide-react";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 
 // App-styled replacement for window.confirm() / window.prompt(). Usage:
 //   const { confirm, prompt } = useDialog();
@@ -37,6 +38,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
   const [dialog, setDialog] = useState<ActiveDialog | null>(null);
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, !!dialog);
 
   const confirm = useCallback(
     (opts: ConfirmOptions) =>
@@ -73,6 +76,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
           onKeyDown={(e) => e.key === "Escape" && close(null)}
         >
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label={dialog.opts.title}

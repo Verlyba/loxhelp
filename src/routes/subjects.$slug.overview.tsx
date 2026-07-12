@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { FileDown } from "lucide-react";
+import { FileDown, Printer } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getClassOverview } from "@/lib/data";
 import { formatDate } from "@/lib/format";
@@ -48,7 +48,7 @@ export const Route = createFileRoute("/subjects/$slug/overview")({
   },
   loader: ({ params }) => getClassOverview({ data: params.slug }),
   head: () => ({
-    meta: [{ title: "Přehled třídy — Školka" }],
+    meta: [{ title: "Přehled třídy — Shtroodle" }],
   }),
   component: OverviewPage,
 });
@@ -109,7 +109,7 @@ function OverviewPage() {
             odpovídají úkolům v legendě.
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="no-print flex shrink-0 items-center gap-2">
           {groupNames.length > 0 && (
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Skupina:
@@ -133,6 +133,12 @@ function OverviewPage() {
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:bg-accent"
           >
             <FileDown className="h-4 w-4" /> Export CSV
+          </button>
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-foreground hover:bg-accent"
+          >
+            <Printer className="h-4 w-4" /> Tisk
           </button>
         </div>
       </div>
@@ -165,7 +171,7 @@ function OverviewPage() {
             ))}
           </div>
 
-          <div className="surface-card overflow-x-auto">
+          <div className="surface-card print-table overflow-x-auto">
             <table className="w-auto table-fixed border-collapse text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/40">

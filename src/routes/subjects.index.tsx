@@ -12,17 +12,20 @@ import {
   BarChart3,
   ExternalLink,
   BookPlus,
+  Copy,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubjectsManagementData } from "@/lib/data";
-import { deleteSubject, createSubject, updateSubject } from "@/lib/actions";
-import { isStaff } from "@/lib/roles";
+import { deleteSubject, duplicateSubject, createSubject, updateSubject } from "@/lib/actions";
+import { isStaff, type SubjectTheme } from "@/lib/roles";
+import { ThemePicker } from "@/components/theme-picker";
 import { useUser } from "@/lib/use-user";
 import type { SubjectCard } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
 import { PageShell } from "@/components/page-shell";
 import { CoverImageField } from "@/components/cover-picker";
+import { ModalBackdrop } from "@/components/modal-backdrop";
 
 type ManagedSubject = SubjectCard & {
   teacherId: string | null;
@@ -36,7 +39,7 @@ export const Route = createFileRoute("/subjects/")({
   },
   loader: () => getSubjectsManagementData(),
   head: () => ({
-    meta: [{ title: "Předměty — Školka" }],
+    meta: [{ title: "Předměty — Shtroodle" }],
   }),
   component: SubjectsIndex,
 });
@@ -158,7 +161,9 @@ function StaffSubjectsView({
 }) {
   const router = useRouter();
   const del = useServerFn(deleteSubject);
+  const duplicate = useServerFn(duplicateSubject);
   const [editing, setEditing] = useState<ManagedSubject | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const { confirm } = useDialog();
 
   const handleDelete = async (s: ManagedSubject) => {
@@ -174,6 +179,26 @@ function StaffSubjectsView({
       await router.invalidate();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Nepodařilo se smazat předmět.");
+    }
+  };
+
+  const handleDuplicate = async (s: ManagedSubject) => {
+    const ok = await confirm({
+      title: `Duplikovat předmět „${s.name}“?`,
+      message:
+        "Vytvoří se kopie se stejnými stránkami, materiály, úkoly a testy, ale bez zapsaných studentů, skupin, odevzdání a známek.",
+    });
+    if (!ok) return;
+    setDuplicatingId(s.id);
+    try {
+      const res = await duplicate({ data: s.id });
+      toast.success(`Vytvořena kopie: „${s.name} (kopie)“.`);
+      await router.invalidate();
+      router.navigate({ to: "/subjects/$slug", params: { slug: res.slug } });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Duplikace se nezdařila.");
+    } finally {
+      setDuplicatingId(null);
     }
   };
 
@@ -228,6 +253,14 @@ function StaffSubjectsView({
                       </Link>
                       <div className="flex-1" />
                       <button
+                        title="Duplikovat"
+                        onClick={() => handleDuplicate(s)}
+                        disabled={duplicatingId === s.id}
+                        className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                      <button
                         title="Upravit"
                         onClick={() => setEditing(s)}
                         className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer"
@@ -278,7 +311,7 @@ function Modal({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <ModalBackdrop onClose={onClose} ariaLabel={title}>
       <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]">
         <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
           <h3 className="font-display text-lg font-bold">{title}</h3>
@@ -293,7 +326,7 @@ function Modal({
         </header>
         <div className="p-6 max-h-[85vh] overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -311,7 +344,7 @@ function CreateSubject({
     name: "",
     description: "",
     imageUrl: "",
-    themeStyle: "default" as "loxone" | "cad3d" | "default",
+    themeStyle: "default" as SubjectTheme,
     classId: active[0]?.id ?? "",
     teacherId: teachers[0]?.id ?? "",
   });
@@ -393,18 +426,11 @@ function CreateSubject({
               </label>
             </div>
             <label className="block text-xs font-semibold text-muted-foreground">
-              Motiv
-              <select
+              Barevný motiv
+              <ThemePicker
                 value={form.themeStyle}
-                onChange={(e) =>
-                  setForm({ ...form, themeStyle: e.target.value as typeof form.themeStyle })
-                }
-                className={`${inputCls} mt-1 w-full`}
-              >
-                <option value="default">Neutrální</option>
-                <option value="loxone">Loxone (zelená)</option>
-                <option value="cad3d">3D CAD (modrá)</option>
-              </select>
+                onChange={(themeStyle) => setForm({ ...form, themeStyle })}
+              />
             </label>
           </div>
           <button
@@ -436,7 +462,7 @@ function EditSubjectModal({
     name: subject.name,
     description: subject.description,
     imageUrl: subject.imageUrl ?? "",
-    themeStyle: subject.theme as "loxone" | "cad3d" | "default",
+    themeStyle: subject.theme as SubjectTheme,
     classId: subject.classId,
     teacherId: subject.teacherId ?? "",
   });
@@ -525,18 +551,11 @@ function EditSubjectModal({
           </label>
         </div>
         <label className="block text-xs font-semibold text-muted-foreground">
-          Motiv
-          <select
+          Barevný motiv
+          <ThemePicker
             value={form.themeStyle}
-            onChange={(e) =>
-              setForm({ ...form, themeStyle: e.target.value as typeof form.themeStyle })
-            }
-            className={`${inputCls} mt-1 w-full`}
-          >
-            <option value="default">Neutrální</option>
-            <option value="loxone">Loxone (zelená)</option>
-            <option value="cad3d">3D CAD (modrá)</option>
-          </select>
+            onChange={(themeStyle) => setForm({ ...form, themeStyle })}
+          />
         </label>
         <div className="mt-3 flex justify-end gap-3 border-t border-border/80 pt-4">
           <button

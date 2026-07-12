@@ -7,7 +7,7 @@ export const Route = createFileRoute("/subjects/$slug/p/$pageSlug")({
   loader: ({ params }) =>
     getSubjectPage({ data: { subjectSlug: params.slug, pageSlug: params.pageSlug } }),
   head: ({ loaderData }) => ({
-    meta: loaderData ? [{ title: `${loaderData.title} — Školka` }] : [],
+    meta: loaderData ? [{ title: `${loaderData.title} — Shtroodle` }] : [],
   }),
   component: PageRoute,
 });

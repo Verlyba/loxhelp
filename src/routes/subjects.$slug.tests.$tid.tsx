@@ -401,6 +401,11 @@ function TestReviewView({ test, attemptId }: { test: any; attemptId: string }) {
             </h2>
             <p className="text-xs text-muted-foreground mt-0.5">
               Odevzdáno {formatDateTime(att.submittedAt!)}
+              {att.isLate && (
+                <span className="ml-2 inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30">
+                  Po časovém limitu
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -1096,7 +1101,17 @@ function AttemptsTableInner({
             </td>
             <td className="px-5 py-3.5 text-xs text-muted-foreground">
               {att.submittedAt ? (
-                formatDateTime(att.submittedAt)
+                <span className="inline-flex items-center gap-1.5">
+                  {formatDateTime(att.submittedAt)}
+                  {att.isLate && (
+                    <span
+                      title="Odevzdáno po vypršení časového limitu"
+                      className="rounded-full bg-red-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30"
+                    >
+                      Po limitu
+                    </span>
+                  )}
+                </span>
               ) : (
                 <span className="text-amber-600 dark:text-amber-400 font-semibold animate-pulse">
                   Rozpracováno
@@ -1226,6 +1241,11 @@ function StaffGradingPanel({ attemptId, onClose }: { attemptId: string; onClose:
           <p className="text-xs text-muted-foreground">
             Spuštěno: {formatDateTime(att.startedAt)} · Odevzdáno:{" "}
             {formatDateTime(att.submittedAt!)}
+            {att.isLate && (
+              <span className="ml-2 inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30">
+                Po časovém limitu
+              </span>
+            )}
           </p>
         </div>
         <button

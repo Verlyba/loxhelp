@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useFocusTrap } from "@/lib/use-focus-trap";
 import { useServerFn } from "@tanstack/react-start";
 import { useRouter } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -19,8 +21,9 @@ import {
 } from "lucide-react";
 import { updateSubmissionState, downloadSubmission } from "@/lib/actions";
 import { getGradeAudit } from "@/lib/data";
-import { formatDateTime, formatBytes } from "@/lib/format";
+import { formatDateTime, formatBytes, toLocalDatetimeInputValue } from "@/lib/format";
 import type { VersionItem } from "@/lib/types";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 
 const AUDIT_LABEL: Record<string, string> = {
   GRADE_SET: "Zapsána známka",
@@ -139,7 +142,9 @@ export function GradingModal({
   const [feedback, setFeedback] = useState(unit.feedback ?? "");
   const [locked, setLocked] = useState(unit.locked);
   // local extension format: 'YYYY-MM-DDTHH:mm'
-  const [extension, setExtension] = useState(unit.extension ? unit.extension.slice(0, 16) : "");
+  const [extension, setExtension] = useState(
+    unit.extension ? toLocalDatetimeInputValue(unit.extension) : "",
+  );
 
   const [busy, setBusy] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -154,6 +159,18 @@ export function GradingModal({
   } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, isOpen);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
 
   const handleDownload = async (id: string) => {
     setDownloading(id);
@@ -289,9 +306,17 @@ export function GradingModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity duration-200">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity duration-200"
+      onClick={onClose}
+    >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Hodnocení odevzdání"
+        onClick={(e) => e.stopPropagation()}
         className={`bg-surface rounded-2xl shadow-elevated border border-border flex flex-col overflow-hidden transform scale-100 transition-all duration-200 h-[90vh] ${
           previewData ? "max-w-6xl w-full" : "max-w-2xl w-full"
         }`}
@@ -481,11 +506,10 @@ export function GradingModal({
                     </label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
-                        <input
-                          type="datetime-local"
+                        <DateTimePicker
                           value={extension}
-                          onChange={(e) => setExtension(e.target.value)}
-                          className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                          onChange={setExtension}
+                          placeholder="Bez prodloužení"
                         />
                       </div>
                       {extension && (
@@ -608,7 +632,8 @@ export function GradingModal({
           </form>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

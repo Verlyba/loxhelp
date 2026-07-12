@@ -119,9 +119,7 @@ export function PairActivityChart({
                       r={DOT_R}
                       className={style.fill}
                     >
-                      <title>
-                        {lane.name} — {lane.weeks[w].label}: nahráno
-                      </title>
+                      <title>{`${lane.name} — ${lane.weeks[w].label}: nahráno`}</title>
                     </circle>
                   ),
               )}
@@ -132,10 +130,17 @@ export function PairActivityChart({
         {/* One transparent hit-area per week, combining every lane's status
             into a single hover tooltip (drawn last so it sits on top). */}
         {weeks.map((w, wi) => (
-          <rect key={w.weekStart} x={wi * COL_W} y={0} width={COL_W} height={height} fill="transparent">
-            <title>
-              {w.label}: {lanes.map((l) => `${l.name} ${l.weeks[wi].count > 0 ? "nahráno" : "bez nahrání"}`).join(", ")}
-            </title>
+          <rect
+            key={w.weekStart}
+            x={wi * COL_W}
+            y={0}
+            width={COL_W}
+            height={height}
+            fill="transparent"
+          >
+            <title>{`${w.label}: ${lanes
+              .map((l) => `${l.name} ${l.weeks[wi].count > 0 ? "nahráno" : "bez nahrání"}`)
+              .join(", ")}`}</title>
           </rect>
         ))}
       </svg>
@@ -148,28 +153,34 @@ export function PairActivityChart({
         ))}
       </div>
 
-      {/* Table-view twin — every value stays reachable without hovering. */}
-      <table className="sr-only">
-        <caption>{title}</caption>
-        <thead>
-          <tr>
-            <th>Osoba</th>
-            {weeks.map((w) => (
-              <th key={w.weekStart}>{w.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {lanes.map((lane) => (
-            <tr key={lane.name}>
-              <td>{lane.name}</td>
-              {lane.weeks.map((w) => (
-                <td key={w.weekStart}>{w.count > 0 ? "ano" : "ne"}</td>
+      {/* Table-view twin — every value stays reachable without hovering.
+          sr-only goes on this wrapper, not the <table>: a table's
+          auto layout ignores an explicit width:1px and grows to fit its
+          (white-space: nowrap) content instead, which — since the element
+          is position:absolute — leaked into the page's scrollable width. */}
+      <div className="sr-only">
+        <table>
+          <caption>{title}</caption>
+          <thead>
+            <tr>
+              <th>Osoba</th>
+              {weeks.map((w) => (
+                <th key={w.weekStart}>{w.label}</th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {lanes.map((lane) => (
+              <tr key={lane.name}>
+                <td>{lane.name}</td>
+                {lane.weeks.map((w) => (
+                  <td key={w.weekStart}>{w.count > 0 ? "ano" : "ne"}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

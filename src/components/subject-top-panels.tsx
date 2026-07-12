@@ -94,7 +94,7 @@ function CurrentAssignmentPanel({
   };
 
   return (
-    <section className="surface-card p-5">
+    <section className="surface-card p-4">
       <h2 className="flex items-center gap-2 font-display text-sm font-semibold">
         <ClipboardList className="h-4 w-4 text-subject" /> Aktuální úkol
       </h2>
@@ -142,7 +142,7 @@ function CourseStatusPanel({
 }) {
   const rest = panel.missing.filter((m) => m.id !== panel.current?.id);
   return (
-    <section className="surface-card p-5">
+    <section className="surface-card p-4">
       <div className="flex items-center justify-between">
         <h2 className="flex items-center gap-2 font-display text-sm font-semibold">
           <Send className="h-4 w-4 text-subject" /> Moje odevzdání
@@ -246,7 +246,7 @@ export function StaffTopPanels({
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="surface-card p-5">
+      <section className="surface-card p-4">
         <h2 className="flex items-center gap-2 font-display text-sm font-semibold">
           <Megaphone className="h-4 w-4 text-subject" /> Nezadané úkoly
         </h2>
@@ -280,7 +280,7 @@ export function StaffTopPanels({
         )}
       </section>
 
-      <section className="surface-card p-5">
+      <section className="surface-card p-4">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 font-display text-sm font-semibold">
             <BarChart3 className="h-4 w-4 text-subject" /> Odevzdání třídy

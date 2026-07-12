@@ -12,16 +12,39 @@ import {
   Upload,
   X,
   FileSpreadsheet,
+  ClipboardList,
+  Inbox,
 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getStudentProfile } from "@/lib/data";
 import { updateUser, deleteUser, setUserPassword } from "@/lib/actions";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { PageShell } from "@/components/page-shell";
 import { useDialog } from "@/components/dialog-provider";
 import { PairActivityChart } from "@/components/pair-activity-chart";
+import { ModalBackdrop } from "@/components/modal-backdrop";
 import { toast } from "sonner";
-import type { StudentProfileData } from "@/lib/types";
+import type { StudentProfileData, TaskStatus } from "@/lib/types";
+import { INITIAL_PASSWORD } from "@/lib/constants";
+
+const STATUS_CHIP: Record<TaskStatus | "none", { label: string; cls: string }> = {
+  overdue: {
+    label: "Po termínu",
+    cls: "bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-950/20 dark:text-red-400 dark:ring-red-900/30",
+  },
+  pending: {
+    label: "K odevzdání",
+    cls: "bg-amber-50 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:ring-amber-900/30",
+  },
+  submitted: {
+    label: "Odevzdáno",
+    cls: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:ring-emerald-900/30",
+  },
+  none: {
+    label: "Nezařazeno",
+    cls: "bg-muted text-muted-foreground ring-1 ring-border",
+  },
+};
 
 export const Route = createFileRoute("/students/$sid")({
   beforeLoad: ({ context }) => {
@@ -29,7 +52,7 @@ export const Route = createFileRoute("/students/$sid")({
   },
   loader: ({ params }) => getStudentProfile({ data: params.sid }),
   head: ({ loaderData }) => ({
-    meta: loaderData ? [{ title: `${loaderData.student.name} — Školka` }] : [],
+    meta: loaderData ? [{ title: `${loaderData.student.name} — Shtroodle` }] : [],
   }),
   component: StudentProfilePage,
 });
@@ -40,7 +63,7 @@ const inputCls =
 function StudentProfilePage() {
   const data = Route.useLoaderData() as StudentProfileData;
   const router = useRouter();
-  const { confirm, prompt } = useDialog();
+  const { confirm } = useDialog();
   const deleteFn = useServerFn(deleteUser);
   const passwordFn = useServerFn(setUserPassword);
   const [editing, setEditing] = useState(false);
@@ -71,19 +94,13 @@ function StudentProfilePage() {
   };
 
   const handlePassword = async () => {
-    const pw = await prompt({
-      title: `Nové heslo pro ${data.student.name}`,
-      message: "Minimálně 4 znaky.",
-      defaultValue: "heslo123",
-      confirmLabel: "Nastavit heslo",
+    const ok = await confirm({
+      title: `Resetovat heslo pro ${data.student.name}?`,
+      message: `Heslo se nastaví na sdílené výchozí heslo (${INITIAL_PASSWORD}) a student si ho bude muset při příštím přihlášení změnit na vlastní.`,
     });
-    if (!pw) return;
-    if (pw.length < 4) {
-      toast.error("Heslo musí mít alespoň 4 znaky.");
-      return;
-    }
-    await passwordFn({ data: { id: data.student.id, password: pw } });
-    toast.success("Heslo nastaveno.");
+    if (!ok) return;
+    await passwordFn({ data: { id: data.student.id } });
+    toast.success("Heslo bylo resetováno na výchozí — student si ho musí při přihlášení změnit.");
   };
 
   return (
@@ -233,6 +250,79 @@ function StudentProfilePage() {
           )}
         </section>
 
+        <section>
+          <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
+            <ClipboardList className="h-5 w-5 text-subject" /> Přehled úkolů (
+            {data.assignments.length})
+          </h2>
+          {data.assignments.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+              V žádném kurzu zatím nejsou zadané žádné úkoly.
+            </p>
+          ) : (
+            <div className="surface-card overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 font-medium">Úkol</th>
+                    <th className="px-3 py-2.5 font-medium">Předmět</th>
+                    <th className="px-3 py-2.5 font-medium">Termín</th>
+                    <th className="px-3 py-2.5 text-right font-medium">Stav</th>
+                    <th className="px-3 py-2.5 text-center font-medium">Známka</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {data.assignments.map((a) => {
+                    const chip = STATUS_CHIP[a.status];
+                    return (
+                      <tr key={a.assignmentId} className="hover:bg-accent/40 transition-colors">
+                        <td className="px-4 py-2.5">
+                          <Link
+                            to="/subjects/$slug/assignments/$aid"
+                            params={{ slug: a.subjectSlug, aid: a.assignmentId }}
+                            className="flex items-center gap-2 font-medium text-foreground hover:text-subject hover:underline"
+                          >
+                            <Inbox className="h-3.5 w-3.5 shrink-0 text-subject" />
+                            <span className="truncate">{a.title}</span>
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2.5 text-muted-foreground">
+                          <Link
+                            to="/subjects/$slug"
+                            params={{ slug: a.subjectSlug }}
+                            className="hover:text-subject hover:underline"
+                          >
+                            {a.subjectName}
+                          </Link>
+                        </td>
+                        <td className="px-3 py-2.5 text-xs text-muted-foreground">
+                          {formatDateTime(a.dueAt)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          <span
+                            className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${chip.cls}`}
+                          >
+                            {chip.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {a.grade ? (
+                            <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-subject-soft text-xs font-extrabold text-subject ring-1 ring-subject/20">
+                              {a.grade}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
         {data.moodleResults.length > 0 && (
           <section>
             <h2 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
@@ -331,7 +421,7 @@ function EditModal({ data, onClose }: { data: StudentProfileData; onClose: () =>
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+    <ModalBackdrop onClose={onClose} ariaLabel="Upravit žáka">
       <form
         onSubmit={submit}
         className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
@@ -405,6 +495,6 @@ function EditModal({ data, onClose }: { data: StudentProfileData; onClose: () =>
           </button>
         </footer>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 }

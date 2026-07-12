@@ -1,10 +1,15 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Megaphone, Plus, Trash2, Pencil, X, Check } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getAnnouncements } from "@/lib/data";
-import { createAnnouncement, updateAnnouncement, deleteAnnouncement } from "@/lib/actions";
+import {
+  createAnnouncement,
+  updateAnnouncement,
+  deleteAnnouncement,
+  markAnnouncementsRead,
+} from "@/lib/actions";
 import { getRouteApi } from "@tanstack/react-router";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -21,15 +26,26 @@ export const Route = createFileRoute("/subjects/$slug/news")({
   },
   loader: ({ params }) => getAnnouncements({ data: params.slug }),
   head: () => ({
-    meta: [{ title: "Oznámení — Školka" }],
+    meta: [{ title: "Oznámení — Shtroodle" }],
   }),
   component: NewsPage,
 });
 
 function NewsPage() {
   const items = Route.useLoaderData() as AnnouncementItem[];
+  const subject = subjectRoute.useLoaderData() as SubjectDetail;
   const user = useUser();
   const staff = !!user && isStaff(user.role);
+  const router = useRouter();
+  const markRead = useServerFn(markAnnouncementsRead);
+
+  useEffect(() => {
+    if (staff || subject.unreadAnnouncementCount === 0) return;
+    markRead({ data: subject.id }).then(() => router.invalidate());
+    // Only re-run if the subject changes — not on every unread-count update
+    // this effect itself triggers (that would loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject.id, staff]);
 
   return (
     <section className="space-y-5">

@@ -9,6 +9,7 @@ export interface SessionUser {
   lastName: string;
   role: Role;
   classId: string | null;
+  mustChangePassword: boolean;
 }
 
 export type TaskStatus = "overdue" | "pending" | "submitted";
@@ -79,7 +80,13 @@ export interface ClassWithSubjects {
   schoolYear: string;
   isArchived: boolean;
   studentCount: number;
-  subjects: { id: string; name: string; slug: string; theme: SubjectTheme }[];
+  subjects: {
+    id: string;
+    name: string;
+    slug: string;
+    theme: SubjectTheme;
+    assignmentCount: number;
+  }[];
   students: { id: string; name: string; email: string }[];
   notifications: {
     id: string;
@@ -124,6 +131,18 @@ export interface SubjectPageDetail extends SubjectPageNav {
   files: SubjectFileItem[];
   showAssignments: boolean;
   assignments?: AssignmentOverview[];
+  blocks: PageBlockView[];
+}
+
+export const BLOCK_TYPES = ["TEXT", "MATERIALS", "ASSIGNMENTS"] as const;
+export type BlockType = (typeof BLOCK_TYPES)[number];
+
+/** One block of a "content" template page's body — see PageBlock in schema.prisma. */
+export interface PageBlockView {
+  id: string;
+  type: BlockType;
+  content: string;
+  order: number;
 }
 
 export interface AssignmentBrief {
@@ -172,6 +191,8 @@ export interface SubjectDetail extends SubjectCard {
   staffPanel: StaffSubjectPanel | null; // set for staff
   latestAnnouncement: { id: string; title: string; createdAt: string } | null;
   announcementCount: number;
+  /** announcements posted since this student last opened the news tab (0 for staff) */
+  unreadAnnouncementCount: number;
   /** page currently marked as the taught topic ("aktivní látka") */
   activePageId: string | null;
 }
@@ -262,6 +283,23 @@ export interface StudentProfileData {
   /** one weekly me-vs-partner comparison per course where the student is paired */
   pairCharts: PairWeeklyComparison[];
   moodleResults: StudentMoodleResultView[];
+  /** every published assignment across all enrolled courses, newest deadline first */
+  assignments: StudentAssignmentRow[];
+}
+
+/** One assignment's submission/grade status for a student, with course context —
+ * the cross-course counterpart of StudentCardRow (which is scoped to one course). */
+export interface StudentAssignmentRow {
+  assignmentId: string;
+  subjectName: string;
+  subjectSlug: string;
+  title: string;
+  dueAt: string; // ISO
+  targetType: TargetType;
+  status: TaskStatus | "none";
+  submittedAt: string | null;
+  grade: string | null;
+  feedback: string | null;
 }
 
 /** One imported Moodle test attempt, as shown on the karta žáka. */
@@ -381,16 +419,29 @@ export interface AssignmentDetail {
   } | null;
   consents?: AssignmentConsentView[];
   pageId?: string | null;
+  /** Weekly upload presence for me vs my pair partner(s), scoped to just this
+   * assignment's submissions — only set for PAIR-target assignments viewed by
+   * a paired student. */
+  pairActivity: { pairName: string; me: PairActivityLane; partner: PairActivityLane | null } | null;
 }
 
 /* ---------- study groups & pairs management ---------- */
+
+/** One PAIR-target assignment's grades + weekly upload presence for a pair —
+ * scoped to that single assignment's submissions, not the whole course. */
+export interface PairAssignmentActivity {
+  assignmentId: string;
+  title: string;
+  dueAt: string;
+  grades: { memberId: string; memberName: string; grade: string | null }[];
+  activity: PairActivityLane[];
+}
 
 export interface PairView {
   id: string;
   name: string;
   members: { id: string; name: string }[];
-  /** weekly upload presence per member, in the same order as `members` */
-  activity: PairActivityLane[];
+  assignments: PairAssignmentActivity[];
 }
 
 export interface StudyGroupView {
@@ -459,6 +510,18 @@ export interface HubCourse {
   done: HubItem[];
 }
 
+/* ---------- global directory search (staff) ---------- */
+
+export type SearchResultKind = "student" | "subject";
+
+export interface SearchResult {
+  kind: SearchResultKind;
+  id: string;
+  label: string;
+  sublabel: string;
+  href: string;
+}
+
 export interface StaffDashboard {
   kind: "staff";
   stats: { subjects: number; activeClasses: number; assignments: number; openSubmissions: number };
@@ -470,8 +533,6 @@ export interface StudentDashboard {
   kind: "student";
   subjects: SubjectCard[];
   activeTopics: ActiveTopic[];
-  /** one weekly me-vs-partner comparison per course where the student is paired */
-  pairCharts: PairWeeklyComparison[];
   classNotifications: {
     id: string;
     title: string;

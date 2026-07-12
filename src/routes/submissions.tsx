@@ -1,9 +1,10 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { ChevronRight, Inbox, CheckCircle2, ChevronDown } from "lucide-react";
+import { ChevronRight, Inbox, CheckCircle2, ChevronDown, CalendarClock } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubmissionHub } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
 import { PageShell } from "@/components/page-shell";
+import { downloadIcs } from "@/lib/ics";
 import { TARGET_LABEL, type HubCourse, type HubItem, type TaskStatus } from "@/lib/types";
 
 export const Route = createFileRoute("/submissions")({
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/submissions")({
   },
   loader: () => getSubmissionHub(),
   head: () => ({
-    meta: [{ title: "Odevzdávárna — Školka" }],
+    meta: [{ title: "Odevzdávárna — Shtroodle" }],
   }),
   component: SubmissionHub,
 });
@@ -36,6 +37,7 @@ const STATUS_CHIP: Record<TaskStatus, { label: string; cls: string }> = {
 function SubmissionHub() {
   const courses = Route.useLoaderData() as HubCourse[];
   const totalMissing = courses.reduce((n, c) => n + c.missing.length, 0);
+  const totalItems = courses.reduce((n, c) => n + c.missing.length + c.done.length, 0);
 
   return (
     <PageShell
@@ -45,6 +47,17 @@ function SubmissionHub() {
         totalMissing === 0
           ? "Vše odevzdáno — nic tu na tebe nečeká. 🎉"
           : `Čeká na tebe ${totalMissing} ${totalMissing === 1 ? "úkol" : totalMissing < 5 ? "úkoly" : "úkolů"} v aktivních kurzech.`
+      }
+      actions={
+        totalItems > 0 ? (
+          <button
+            type="button"
+            onClick={() => downloadIcs(courses, "terminy_ukolu.ics")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent/60 transition-colors"
+          >
+            <CalendarClock className="h-3.5 w-3.5" /> Export do kalendáře (.ics)
+          </button>
+        ) : undefined
       }
     >
       {courses.length === 0 ? (

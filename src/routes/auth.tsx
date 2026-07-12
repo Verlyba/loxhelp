@@ -9,7 +9,7 @@ export const Route = createFileRoute("/auth")({
     redirectIfAuthed(context.user);
   },
   head: () => ({
-    meta: [{ title: "Přihlášení — Školka" }],
+    meta: [{ title: "Přihlášení — Shtroodle" }],
   }),
   component: AuthPage,
 });

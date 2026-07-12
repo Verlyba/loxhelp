@@ -13,7 +13,6 @@ import { requireUser } from "@/lib/guards";
 import { getDashboard } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
 import { PageShell } from "@/components/page-shell";
-import { PairActivityChart } from "@/components/pair-activity-chart";
 import { useUser } from "@/lib/use-user";
 import type { DashboardData, SubjectCard } from "@/lib/types";
 
@@ -23,7 +22,7 @@ export const Route = createFileRoute("/")({
   },
   loader: () => getDashboard(),
   head: () => ({
-    meta: [{ title: "Přehled — Školka" }],
+    meta: [{ title: "Přehled — Shtroodle" }],
   }),
   component: Dashboard,
 });
@@ -73,24 +72,28 @@ function StaffDashboard({ data }: { data: Extract<DashboardData, { kind: "staff"
           label="Předměty"
           value={data.stats.subjects}
           color="text-blue-500 bg-blue-50 dark:bg-blue-950/20"
+          to="/subjects"
         />
         <Stat
           icon={Users}
           label="Aktivní třídy"
           value={data.stats.activeClasses}
           color="text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20"
+          to="/classes"
         />
         <Stat
           icon={FileUp}
           label="Úkoly"
           value={data.stats.assignments}
           color="text-orange-500 bg-orange-50 dark:bg-orange-950/20"
+          to="/subjects"
         />
         <Stat
           icon={Inbox}
           label="K hodnocení"
           value={data.stats.openSubmissions}
           color="text-purple-500 bg-purple-50 dark:bg-purple-950/20"
+          to="/subjects"
         />
       </div>
 
@@ -180,21 +183,6 @@ function StudentDashboard({ data }: { data: Extract<DashboardData, { kind: "stud
           </p>
         </div>
       </div>
-
-      {/* Pair activity — only shown for courses where I'm actually paired */}
-      {data.pairCharts.length > 0 && (
-        <div className={`grid gap-4 mb-8 ${data.pairCharts.length === 1 ? "" : "sm:grid-cols-2"}`}>
-          {data.pairCharts.map((pc) => (
-            <div key={pc.subjectId} data-subject-theme={pc.theme} className="surface-card p-5">
-              <PairActivityChart
-                title={`${pc.pairName} · ${pc.subjectName}`}
-                subtitle="Kdo tento týden nahrál"
-                lanes={pc.partner ? [pc.me, pc.partner] : [pc.me]}
-              />
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* Currently taught topics — the teacher marks one page per course */}
       {data.activeTopics.length > 0 && (
@@ -334,14 +322,16 @@ function Stat({
   label,
   value,
   color,
+  to,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: number;
   color?: string;
+  to?: string;
 }) {
-  return (
-    <div className="surface-card p-5 hover:shadow-elevated transition-all duration-300 hover:-translate-y-0.5 border border-border/80 flex items-center justify-between gap-4">
+  const body = (
+    <>
       <div className="min-w-0">
         <span className="text-xs font-semibold text-muted-foreground block truncate">{label}</span>
         <p className="mt-1 text-2xl sm:text-3xl font-extrabold font-display leading-tight text-foreground">
@@ -353,6 +343,17 @@ function Stat({
       >
         <Icon className="h-5 w-5" />
       </div>
-    </div>
+    </>
   );
+  const className =
+    "surface-card p-5 hover:shadow-elevated transition-all duration-300 hover:-translate-y-0.5 border border-border/80 flex items-center justify-between gap-4";
+
+  if (to) {
+    return (
+      <Link to={to} className={`${className} cursor-pointer`}>
+        {body}
+      </Link>
+    );
+  }
+  return <div className={className}>{body}</div>;
 }

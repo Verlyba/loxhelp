@@ -21,6 +21,9 @@ import type {
   MoodleTestDetail,
   MoodleTestResultRow,
   MoodleTestSummary,
+  PageBlockView,
+  PairAssignmentActivity,
+  StudentAssignmentRow,
   StudentCardData,
   StudentCardRow,
   StudentMoodleResultView,
@@ -38,6 +41,7 @@ import type {
   SubjectGroupsData,
   SubjectMaterialsData,
   PairWeeklyComparison,
+  SearchResult,
   WeekBucket,
   TargetType,
   TaskStatus,
@@ -60,8 +64,13 @@ async function requireStaffUser(): Promise<SessionUser> {
   return user;
 }
 
-function statusOf(submissionCount: number, dueDate: Date, extensionDate?: Date | null): TaskStatus {
-  if (submissionCount > 0) return "submitted";
+function statusOf(
+  submissionCount: number,
+  dueDate: Date,
+  extensionDate?: Date | null,
+  graded?: boolean,
+): TaskStatus {
+  if (submissionCount > 0 || graded) return "submitted";
   const activeDueDate = extensionDate || dueDate;
   return activeDueDate.getTime() < Date.now() ? "overdue" : "pending";
 }
@@ -69,6 +78,9 @@ function statusOf(submissionCount: number, dueDate: Date, extensionDate?: Date |
 const RANK: Record<TaskStatus, number> = { overdue: 0, pending: 1, submitted: 2 };
 
 const fullName = (u: { firstName: string; lastName: string }) => `${u.firstName} ${u.lastName}`;
+
+/** Diacritic- and case-insensitive fold, keeping spaces so multi-word queries still match. */
+const foldForSearch = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 function asTarget(value: string): TargetType {
   return value === "PAIR" || value === "GROUP" ? value : "INDIVIDUAL";
@@ -238,7 +250,7 @@ async function studentAssignmentInfos(userId: string, subjectId?: string) {
       assignment: a,
       targetType,
       unitKey,
-      status: statusOf(count, a.dueDate, gradeObj?.extension),
+      status: statusOf(count, a.dueDate, gradeObj?.extension, gradeObj?.value != null),
       latestVersion: latestByAssignment.get(a.id) ?? null,
       grade: gradeObj?.value ?? null,
       feedback: gradeObj?.note ?? null,
@@ -417,6 +429,74 @@ async function studentPairWeeklyCharts(userId: string): Promise<PairWeeklyCompar
 
 // --- dashboard ---
 
+/**
+ * Counts submitted units (assignmentId+unitKey) that still have no grade —
+ * used for the "K hodnocení" dashboard stat. `submission.groupBy` alone
+ * counts every unit that was ever submitted to, including ones the teacher
+ * already graded, which would leave the number permanently too high.
+ * Grade rows are keyed by (assignmentId, userId), so pair/group units are
+ * checked via one representative member — grading always applies the same
+ * value to every member of a unit in one transaction, so any member's Grade
+ * reflects the whole unit's state.
+ */
+async function countUngradedUnits(
+  unitGroups: { assignmentId: string; unitKey: string }[],
+): Promise<number> {
+  if (unitGroups.length === 0) return 0;
+
+  const pairIds = [
+    ...new Set(unitGroups.filter((u) => u.unitKey.startsWith("p:")).map((u) => u.unitKey.slice(2))),
+  ];
+  const groupIds = [
+    ...new Set(unitGroups.filter((u) => u.unitKey.startsWith("g:")).map((u) => u.unitKey.slice(2))),
+  ];
+
+  const [pairMembers, groupMembers] = await Promise.all([
+    pairIds.length
+      ? db.pairMember.findMany({
+          where: { pairId: { in: pairIds } },
+          select: { pairId: true, userId: true },
+        })
+      : Promise.resolve([]),
+    groupIds.length
+      ? db.studyGroupMember.findMany({
+          where: { studyGroupId: { in: groupIds } },
+          select: { studyGroupId: true, userId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const pairRep = new Map<string, string>();
+  for (const pm of pairMembers) if (!pairRep.has(pm.pairId)) pairRep.set(pm.pairId, pm.userId);
+  const groupRep = new Map<string, string>();
+  for (const gm of groupMembers)
+    if (!groupRep.has(gm.studyGroupId)) groupRep.set(gm.studyGroupId, gm.userId);
+
+  const repUserId = (unitKey: string): string | null => {
+    if (unitKey.startsWith("u:")) return unitKey.slice(2);
+    if (unitKey.startsWith("p:")) return pairRep.get(unitKey.slice(2)) ?? null;
+    if (unitKey.startsWith("g:")) return groupRep.get(unitKey.slice(2)) ?? null;
+    return null;
+  };
+
+  const candidates = unitGroups
+    .map((u) => ({ assignmentId: u.assignmentId, userId: repUserId(u.unitKey) }))
+    .filter((c): c is { assignmentId: string; userId: string } => c.userId !== null);
+
+  const graded = candidates.length
+    ? await db.grade.findMany({
+        where: { value: { not: null }, OR: candidates },
+        select: { assignmentId: true, userId: true },
+      })
+    : [];
+  const gradedSet = new Set(graded.map((g) => `${g.assignmentId}:${g.userId}`));
+
+  return unitGroups.filter((u) => {
+    const rep = repUserId(u.unitKey);
+    return !rep || !gradedSet.has(`${u.assignmentId}:${rep}`);
+  }).length;
+}
+
 export const getDashboard = createServerFn({ method: "GET" }).handler(
   async (): Promise<DashboardData> => {
     const user = await requireUser();
@@ -433,6 +513,7 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
           include: activityInclude,
         }),
       ]);
+      const openSubmissions = await countUngradedUnits(unitGroups);
 
       return {
         kind: "staff",
@@ -440,14 +521,14 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
           subjects: subjects.length,
           activeClasses,
           assignments,
-          openSubmissions: unitGroups.length,
+          openSubmissions,
         },
         subjects: subjects.map(toSubjectCard),
         recentUploads: recent.map(toActivity),
       };
     }
 
-    const [subjects, activeSubjects, pairCharts, classNotifications] = await Promise.all([
+    const [subjects, activeSubjects, classNotifications] = await Promise.all([
       db.subject.findMany({
         ...subjectCardArgs,
         where: { enrollments: { some: { userId: user.id } } },
@@ -467,7 +548,6 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
           activePage: { select: { title: true, slug: true } },
         },
       }),
-      studentPairWeeklyCharts(user.id),
       db.classNotification.findMany({
         where: { classId: user.classId || "" },
         orderBy: { createdAt: "desc" },
@@ -494,7 +574,6 @@ export const getDashboard = createServerFn({ method: "GET" }).handler(
       kind: "student",
       subjects: subjects.map(toSubjectCard),
       activeTopics,
-      pairCharts,
       classNotifications: classNotifications.map((n) => ({
         id: n.id,
         title: n.title,
@@ -643,14 +722,30 @@ export const getSubject = createServerFn({ method: "GET" })
       };
     }
 
-    const [latestAnnouncement, announcementCount] = await Promise.all([
+    const [latestAnnouncement, announcementCount, enrollment] = await Promise.all([
       db.announcement.findFirst({
         where: { subjectId: subject.id },
         orderBy: { createdAt: "desc" },
         select: { id: true, title: true, createdAt: true },
       }),
       db.announcement.count({ where: { subjectId: subject.id } }),
+      staff
+        ? null
+        : db.enrollment.findUnique({
+            where: { userId_subjectId: { userId: user.id, subjectId: subject.id } },
+            select: { announcementsReadAt: true },
+          }),
     ]);
+
+    const unreadAnnouncementCount =
+      !staff && latestAnnouncement
+        ? await db.announcement.count({
+            where: {
+              subjectId: subject.id,
+              createdAt: { gt: enrollment?.announcementsReadAt ?? new Date(0) },
+            },
+          })
+        : 0;
 
     return {
       ...toSubjectCard(subject),
@@ -671,6 +766,7 @@ export const getSubject = createServerFn({ method: "GET" })
           }
         : null,
       announcementCount,
+      unreadAnnouncementCount,
       activePageId: subject.activePageId,
     };
   });
@@ -765,6 +861,7 @@ export const getSubjectPage = createServerFn({ method: "GET" })
         subject: { select: { id: true, slug: true } },
         // Students see only published materials (PRD §5A); staff see drafts too.
         files: { where: staff ? {} : { isPublished: true }, orderBy: { order: "asc" } },
+        blocks: { orderBy: { order: "asc" } },
       },
     });
     if (!page) throw redirect({ to: "/subjects/$slug", params: { slug: data.subjectSlug } });
@@ -811,6 +908,8 @@ export const getSubjectPage = createServerFn({ method: "GET" })
       };
     });
 
+    const hasAssignmentsBlock = page.blocks.some((b) => b.type === "ASSIGNMENTS");
+
     return {
       id: page.id,
       title: page.title,
@@ -818,7 +917,7 @@ export const getSubjectPage = createServerFn({ method: "GET" })
       template: page.template === "assignments" ? ("assignments" as const) : ("content" as const),
       content: page.content,
       showAssignments: page.showAssignments,
-      assignments: page.showAssignments || staff ? assignments : [],
+      assignments: hasAssignmentsBlock || staff ? assignments : [],
       updatedAt: page.updatedAt.toISOString(),
       files: page.files.map((f) => ({
         id: f.id,
@@ -829,6 +928,12 @@ export const getSubjectPage = createServerFn({ method: "GET" })
         category: f.category,
         description: f.description,
         isPublished: f.isPublished,
+      })),
+      blocks: page.blocks.map((b) => ({
+        id: b.id,
+        type: b.type as PageBlockView["type"],
+        content: b.content,
+        order: b.order,
       })),
     };
   });
@@ -1027,6 +1132,7 @@ export const getAssignment = createServerFn({ method: "GET" })
 
     let units: UnitView[] = [];
     let myUnitKey: string | null = null;
+    let pairActivity: AssignmentDetail["pairActivity"] = null;
 
     if (targetType === "INDIVIDUAL") {
       const enrollments = await db.enrollment.findMany({
@@ -1087,6 +1193,30 @@ export const getAssignment = createServerFn({ method: "GET" })
       const mine = all.find((u) => u.members.some((m) => m.id === user.id));
       myUnitKey = staff ? null : (mine?.key ?? null);
       units = staff ? all : mine ? [mine] : [];
+
+      if (!staff && mine) {
+        const partners = mine.members.filter((m) => m.id !== user.id);
+        if (partners.length > 0) {
+          const mineSubs = subs.filter((s) => s.unitKey === mine.key);
+          pairActivity = {
+            pairName: mine.name,
+            me: {
+              name: "Já",
+              weeks: bucketByWeek(
+                mineSubs.filter((s) => s.uploadedById === user.id).map((s) => s.createdAt),
+              ),
+            },
+            partner: {
+              name: partners.map((p) => p.name).join(", "),
+              weeks: bucketByWeek(
+                mineSubs
+                  .filter((s) => partners.some((p) => p.id === s.uploadedById))
+                  .map((s) => s.createdAt),
+              ),
+            },
+          };
+        }
+      }
     } else {
       const groups = await db.studyGroup.findMany({
         where: { subjectId },
@@ -1153,6 +1283,7 @@ export const getAssignment = createServerFn({ method: "GET" })
         : null,
       consents: consentsMapped,
       pageId: assignment.pageId,
+      pairActivity,
     };
   });
 
@@ -1222,6 +1353,11 @@ export const getSubjectGroups = createServerFn({ method: "GET" })
         enrollments: {
           include: { user: { select: { id: true, firstName: true, lastName: true } } },
         },
+        assignments: {
+          where: { targetType: "PAIR", isPublished: true },
+          orderBy: { dueDate: "asc" },
+          select: { id: true, title: true, dueDate: true },
+        },
         studyGroups: {
           orderBy: { name: "asc" },
           include: {
@@ -1244,18 +1380,47 @@ export const getSubjectGroups = createServerFn({ method: "GET" })
 
     const inAnyGroup = new Set(subject.studyGroups.flatMap((g) => g.members.map((m) => m.userId)));
     const enrolledIds = new Set(subject.enrollments.map((e) => e.userId));
+    const pairAssignmentIds = subject.assignments.map((a) => a.id);
 
-    const allPairIds = subject.studyGroups.flatMap((g) => g.pairs.map((p) => p.id));
-    const pairSubs =
-      allPairIds.length > 0
-        ? await db.submission.findMany({
-            where: {
-              unitKey: { in: allPairIds.map((id) => `p:${id}`) },
-              createdAt: { gte: weeklyCutoff() },
-            },
-            select: { unitKey: true, uploadedById: true, createdAt: true },
+    const [pairSubs, pairGrades] = await Promise.all([
+      pairAssignmentIds.length > 0
+        ? db.submission.findMany({
+            where: { assignmentId: { in: pairAssignmentIds }, unitKey: { startsWith: "p:" } },
+            select: { assignmentId: true, unitKey: true, uploadedById: true, createdAt: true },
           })
-        : [];
+        : Promise.resolve([]),
+      pairAssignmentIds.length > 0
+        ? db.grade.findMany({
+            where: { assignmentId: { in: pairAssignmentIds } },
+            select: { assignmentId: true, userId: true, value: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const buildPairAssignments = (
+      pairId: string,
+      members: { id: string; name: string }[],
+    ): PairAssignmentActivity[] =>
+      subject.assignments.map((a) => {
+        const subs = pairSubs.filter((s) => s.assignmentId === a.id && s.unitKey === `p:${pairId}`);
+        return {
+          assignmentId: a.id,
+          title: a.title,
+          dueAt: a.dueDate.toISOString(),
+          grades: members.map((m) => ({
+            memberId: m.id,
+            memberName: m.name,
+            grade:
+              pairGrades.find((g) => g.assignmentId === a.id && g.userId === m.id)?.value ?? null,
+          })),
+          activity: members.map((m) => ({
+            name: m.name,
+            weeks: bucketByWeek(
+              subs.filter((s) => s.uploadedById === m.id).map((s) => s.createdAt),
+            ),
+          })),
+        };
+      });
 
     return {
       subjectId: subject.id,
@@ -1272,17 +1437,12 @@ export const getSubjectGroups = createServerFn({ method: "GET" })
             pairName: pairNameByUser.get(m.user.id) ?? null,
           })),
           pairs: g.pairs.map((p) => {
-            const subs = pairSubs.filter((s) => s.unitKey === `p:${p.id}`);
+            const members = p.members.map((m) => ({ id: m.user.id, name: fullName(m.user) }));
             return {
               id: p.id,
               name: p.name,
-              members: p.members.map((m) => ({ id: m.user.id, name: fullName(m.user) })),
-              activity: p.members.map((m) => ({
-                name: fullName(m.user),
-                weeks: bucketByWeek(
-                  subs.filter((s) => s.uploadedById === m.user.id).map((s) => s.createdAt),
-                ),
-              })),
+              members,
+              assignments: buildPairAssignments(p.id, members),
             };
           }),
         };
@@ -1453,7 +1613,12 @@ export const getClassOverview = createServerFn({ method: "GET" })
         const stat = unitKey ? unitStats.get(`${a.id}|${unitKey}`) : undefined;
         cells[a.id] = {
           status: unitKey
-            ? statusOf(stat?.count ?? 0, a.dueDate, extension ? new Date(extension) : null)
+            ? statusOf(
+                stat?.count ?? 0,
+                a.dueDate,
+                extension ? new Date(extension) : null,
+                gradeVal != null,
+              )
             : "none",
           submittedAt: stat ? stat.first.toISOString() : null,
           versions: stat?.count ?? 0,
@@ -1644,11 +1809,13 @@ export const getStudentProfile = createServerFn({ method: "GET" })
           },
         },
         studyGroupMembers: {
-          include: { studyGroup: { select: { subjectId: true, name: true } } },
+          include: { studyGroup: { select: { id: true, subjectId: true, name: true } } },
         },
         pairMembers: {
           include: {
-            pair: { select: { name: true, studyGroup: { select: { subjectId: true } } } },
+            pair: {
+              select: { id: true, name: true, studyGroup: { select: { subjectId: true } } },
+            },
           },
         },
       },
@@ -1661,8 +1828,33 @@ export const getStudentProfile = createServerFn({ method: "GET" })
     const pairBySubject = new Map(
       student.pairMembers.map((m) => [m.pair.studyGroup.subjectId, m.pair.name]),
     );
+    const groupIdBySubject = new Map(
+      student.studyGroupMembers.map((m) => [m.studyGroup.subjectId, m.studyGroup.id]),
+    );
+    const pairIdBySubject = new Map(
+      student.pairMembers.map((m) => [m.pair.studyGroup.subjectId, m.pair.id]),
+    );
 
-    const [totalUploads, grades, classes, pairCharts, moodleResultRows] = await Promise.all([
+    const enrolledSubjectIds = student.enrollments.map((e) => e.subject.id);
+    const subjectById = new Map(student.enrollments.map((e) => [e.subject.id, e.subject]));
+    const courseAssignments =
+      enrolledSubjectIds.length > 0
+        ? await db.assignment.findMany({
+            where: { subjectId: { in: enrolledSubjectIds }, isPublished: true },
+            orderBy: { dueDate: "desc" },
+          })
+        : [];
+    const assignmentIds = courseAssignments.map((a) => a.id);
+
+    const [
+      totalUploads,
+      grades,
+      classes,
+      pairCharts,
+      moodleResultRows,
+      assignmentGrades,
+      assignmentSubs,
+    ] = await Promise.all([
       db.submission.count({ where: { uploadedById: id } }),
       db.grade.findMany({ where: { userId: id, value: { not: null } }, select: { value: true } }),
       db.class.findMany({
@@ -1683,6 +1875,16 @@ export const getStudentProfile = createServerFn({ method: "GET" })
           },
         },
       }),
+      assignmentIds.length > 0
+        ? db.grade.findMany({ where: { userId: id, assignmentId: { in: assignmentIds } } })
+        : Promise.resolve([]),
+      assignmentIds.length > 0
+        ? db.submission.findMany({
+            where: { assignmentId: { in: assignmentIds } },
+            select: { assignmentId: true, unitKey: true, createdAt: true },
+            orderBy: { createdAt: "asc" },
+          })
+        : Promise.resolve([]),
     ]);
 
     const moodleResults: StudentMoodleResultView[] = moodleResultRows.map((r) => ({
@@ -1698,6 +1900,40 @@ export const getStudentProfile = createServerFn({ method: "GET" })
     const numeric = grades
       .map((g) => parseFloat((g.value ?? "").replace(",", ".").replace("-", ".5")))
       .filter((n) => !Number.isNaN(n));
+
+    const gradeByAssignment = new Map(assignmentGrades.map((g) => [g.assignmentId, g]));
+    const assignments: StudentAssignmentRow[] = courseAssignments.map((a) => {
+      const subject = subjectById.get(a.subjectId)!;
+      const target = asTarget(a.targetType);
+      const unitKey =
+        target === "INDIVIDUAL"
+          ? `u:${id}`
+          : target === "PAIR"
+            ? pairIdBySubject.has(a.subjectId)
+              ? `p:${pairIdBySubject.get(a.subjectId)}`
+              : null
+            : groupIdBySubject.has(a.subjectId)
+              ? `g:${groupIdBySubject.get(a.subjectId)}`
+              : null;
+      const unitSubs = unitKey
+        ? assignmentSubs.filter((s) => s.assignmentId === a.id && s.unitKey === unitKey)
+        : [];
+      const first = unitSubs[0] ?? null;
+      const grade = gradeByAssignment.get(a.id);
+
+      return {
+        assignmentId: a.id,
+        subjectName: subject.name,
+        subjectSlug: subject.slug,
+        title: a.title,
+        dueAt: a.dueDate.toISOString(),
+        targetType: target,
+        status: unitKey ? statusOf(unitSubs.length, a.dueDate, null, grade?.value != null) : "none",
+        submittedAt: first ? first.createdAt.toISOString() : null,
+        grade: grade?.value ?? null,
+        feedback: grade?.note ?? null,
+      };
+    });
 
     return {
       student: {
@@ -1729,6 +1965,7 @@ export const getStudentProfile = createServerFn({ method: "GET" })
       classes,
       pairCharts,
       moodleResults,
+      assignments,
     };
   });
 
@@ -1830,7 +2067,7 @@ export const getStudentCard = createServerFn({ method: "GET" })
         title: a.title,
         dueAt: a.dueDate.toISOString(),
         targetType: target,
-        status: unitKey ? statusOf(unitSubs.length, a.dueDate) : "none",
+        status: unitKey ? statusOf(unitSubs.length, a.dueDate, null, grade?.value != null) : "none",
         submittedAt: first ? first.createdAt.toISOString() : null,
         versions: unitSubs.length,
         myUploads: unitSubs.filter((s) => s.uploadedById === student.id).length,
@@ -1910,7 +2147,15 @@ export const getClasses = createServerFn({ method: "GET" }).handler(
       db.class.findMany({
         orderBy: [{ schoolYear: "desc" }, { name: "asc" }],
         include: {
-          subjects: { select: { id: true, name: true, slug: true, themeStyle: true } },
+          subjects: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              themeStyle: true,
+              _count: { select: { assignments: true } },
+            },
+          },
           students: {
             where: { role: "STUDENT" },
             orderBy: { lastName: "asc" },
@@ -1945,6 +2190,7 @@ export const getClasses = createServerFn({ method: "GET" }).handler(
           name: s.name,
           slug: s.slug,
           theme: asTheme(s.themeStyle),
+          assignmentCount: s._count.assignments,
         })),
         students: c.students.map((s) => ({ id: s.id, name: fullName(s), email: s.email })),
         notifications: c.notifications.map((n) => ({
@@ -1960,6 +2206,62 @@ export const getClasses = createServerFn({ method: "GET" }).handler(
     };
   },
 );
+
+// --- global directory search (staff) ---
+
+export const searchDirectory = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) => z.object({ query: z.string() }).parse(d))
+  .handler(async ({ data }): Promise<SearchResult[]> => {
+    await requireStaffUser();
+
+    const q = foldForSearch(data.query.trim());
+    if (q.length < 2) return [];
+
+    const [students, subjects] = await Promise.all([
+      db.user.findMany({
+        where: { role: "STUDENT" },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          class: { select: { name: true } },
+        },
+      }),
+      db.subject.findMany({
+        select: { id: true, name: true, slug: true, class: { select: { name: true } } },
+      }),
+    ]);
+
+    const results: SearchResult[] = [];
+
+    for (const s of students) {
+      const name = fullName(s);
+      if (foldForSearch(name).includes(q) || foldForSearch(s.email).includes(q)) {
+        results.push({
+          kind: "student",
+          id: s.id,
+          label: name,
+          sublabel: s.class?.name ?? "bez třídy",
+          href: `/students/${s.id}`,
+        });
+      }
+    }
+
+    for (const s of subjects) {
+      if (foldForSearch(s.name).includes(q)) {
+        results.push({
+          kind: "subject",
+          id: s.id,
+          label: s.name,
+          sublabel: s.class.name,
+          href: `/subjects/${s.slug}`,
+        });
+      }
+    }
+
+    return results.slice(0, 8);
+  });
 
 // --- admin overview (staff) ---
 

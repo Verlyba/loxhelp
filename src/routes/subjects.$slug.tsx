@@ -29,12 +29,14 @@ import {
   setActiveTopic,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
-import { isStaff } from "@/lib/roles";
+import { isStaff, type SubjectTheme } from "@/lib/roles";
+import { ThemePicker } from "@/components/theme-picker";
 import { StudentTopPanels, StaffTopPanels } from "@/components/subject-top-panels";
 import type { PageTemplate, SubjectDetail, SubjectPageNav } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
 import { CoverImageField } from "@/components/cover-picker";
+import { ModalBackdrop } from "@/components/modal-backdrop";
 
 export const Route = createFileRoute("/subjects/$slug")({
   beforeLoad: ({ context }) => {
@@ -42,7 +44,7 @@ export const Route = createFileRoute("/subjects/$slug")({
   },
   loader: ({ params }) => getSubject({ data: params.slug }),
   head: ({ loaderData }) => ({
-    meta: loaderData ? [{ title: `${loaderData.name} — Školka` }] : [],
+    meta: loaderData ? [{ title: `${loaderData.name} — Shtroodle` }] : [],
   }),
   component: SubjectLayout,
 });
@@ -69,13 +71,16 @@ function SubjectLayout() {
       {/* Compact hero with optional image banner */}
       <div className="subject-hero border-b border-border relative overflow-hidden bg-muted">
         {subject.imageUrl ? (
-          <>
-            <div
-              className="absolute inset-0 bg-cover bg-center opacity-25"
-              style={{ backgroundImage: `url(${subject.imageUrl})` }}
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-background via-background/90 to-transparent" />
-          </>
+          <div
+            className="absolute right-0 top-0 h-full w-[26rem] bg-cover bg-center opacity-40 sm:w-[34rem] md:w-[48rem]"
+            style={{
+              backgroundImage: `url(${subject.imageUrl})`,
+              maskImage:
+                "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.02) 8%, rgba(0,0,0,0.08) 16%, rgba(0,0,0,0.18) 24%, rgba(0,0,0,0.32) 32%, rgba(0,0,0,0.5) 40%, rgba(0,0,0,0.68) 48%, rgba(0,0,0,0.82) 56%, rgba(0,0,0,0.92) 64%, rgba(0,0,0,0.98) 72%, black 85%)",
+              WebkitMaskImage:
+                "linear-gradient(to right, transparent 0%, rgba(0,0,0,0.02) 8%, rgba(0,0,0,0.08) 16%, rgba(0,0,0,0.18) 24%, rgba(0,0,0,0.32) 32%, rgba(0,0,0,0.5) 40%, rgba(0,0,0,0.68) 48%, rgba(0,0,0,0.82) 56%, rgba(0,0,0,0.92) 64%, rgba(0,0,0,0.98) 72%, black 85%)",
+            }}
+          />
         ) : (
           <div className="absolute inset-0 bg-gradient-to-r from-subject/10 to-subject/5" />
         )}
@@ -174,9 +179,7 @@ function EditSubjectModal({
   const [name, setName] = useState(subject.name);
   const [description, setDescription] = useState(subject.description || "");
   const [imageUrl, setImageUrl] = useState(subject.imageUrl || "");
-  const [themeStyle, setThemeStyle] = useState<"loxone" | "cad3d" | "default">(
-    subject.theme === "loxone" || subject.theme === "cad3d" ? subject.theme : "default",
-  );
+  const [themeStyle, setThemeStyle] = useState<SubjectTheme>(subject.theme);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -223,7 +226,11 @@ function EditSubjectModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm text-sm">
+    <ModalBackdrop
+      onClose={onClose}
+      ariaLabel="Nastavení kurzu (předmětu)"
+      className="flex items-center justify-center p-4 text-sm"
+    >
       <div className="bg-surface rounded-2xl shadow-elevated border border-border max-w-lg w-full overflow-hidden">
         <header className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/30">
           <h3 className="font-display font-bold text-lg text-foreground">
@@ -263,16 +270,8 @@ function EditSubjectModal({
           <CoverImageField value={imageUrl} onChange={setImageUrl} />
 
           <label className="block text-xs font-semibold text-muted-foreground">
-            Styl a motiv kurzu
-            <select
-              value={themeStyle}
-              onChange={(e) => setThemeStyle(e.target.value as "loxone" | "cad3d" | "default")}
-              className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 text-foreground"
-            >
-              <option value="default">Výchozí (šedý)</option>
-              <option value="loxone">Loxone (zelený)</option>
-              <option value="cad3d">CAD 3D (modrý)</option>
-            </select>
+            Barevný motiv kurzu
+            <ThemePicker value={themeStyle} onChange={setThemeStyle} />
           </label>
 
           {error && <p className="text-xs text-red-600">{error}</p>}
@@ -305,7 +304,7 @@ function EditSubjectModal({
           </div>
         </form>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -330,10 +329,16 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
         >
           <Megaphone className="h-4 w-4 shrink-0" />
           <span className="truncate">Oznámení</span>
-          {subject.announcementCount > 0 && (
-            <span className="ml-auto rounded-full bg-subject-soft px-1.5 text-[11px] font-semibold ring-1 ring-subject/30">
-              {subject.announcementCount}
+          {subject.unreadAnnouncementCount > 0 ? (
+            <span className="ml-auto rounded-full bg-destructive px-1.5 text-[11px] font-semibold text-destructive-foreground">
+              {subject.unreadAnnouncementCount}
             </span>
+          ) : (
+            subject.announcementCount > 0 && (
+              <span className="ml-auto rounded-full bg-subject-soft px-1.5 text-[11px] font-semibold ring-1 ring-subject/30">
+                {subject.announcementCount}
+              </span>
+            )
           )}
         </Link>
         <Link

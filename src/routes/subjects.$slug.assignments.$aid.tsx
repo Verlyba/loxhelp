@@ -36,7 +36,7 @@ import {
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
-import { formatDateTime, formatBytes } from "@/lib/format";
+import { formatDateTime, formatBytes, toLocalDatetimeInputValue } from "@/lib/format";
 import {
   TARGET_LABEL,
   type AssignmentDetail,
@@ -45,8 +45,11 @@ import {
   type SubjectDetail,
 } from "@/lib/types";
 import { GradingModal } from "@/components/grading-modal";
+import { ModalBackdrop } from "@/components/modal-backdrop";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { PairActivityChart } from "@/components/pair-activity-chart";
 
 const subjectRoute = getRouteApi("/subjects/$slug");
 
@@ -56,7 +59,7 @@ export const Route = createFileRoute("/subjects/$slug/assignments/$aid")({
   },
   loader: ({ params }) => getAssignment({ data: params.aid }),
   head: ({ loaderData }) => ({
-    meta: loaderData ? [{ title: `${loaderData.title} — Školka` }] : [],
+    meta: loaderData ? [{ title: `${loaderData.title} — Shtroodle` }] : [],
   }),
   component: AssignmentPage,
 });
@@ -108,24 +111,30 @@ function AssignmentPage() {
         <ChevronLeft className="h-4 w-4" /> Zpět na kurz
       </Link>
 
-      <header className="mt-4">
+      <header className="mt-3">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="font-display text-2xl sm:text-3xl font-semibold">{assignment.title}</h1>
-          <span className="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+          <h1 className="font-display text-xl sm:text-2xl font-semibold tracking-tight">
+            {assignment.title}
+          </h1>
+          <span className="rounded-full bg-subject-soft px-2 py-0.5 text-[11px] font-semibold text-subject ring-1 ring-subject/20">
             {TARGET_LABEL[assignment.targetType]}
           </span>
           {!assignment.isPublished && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
-              <EyeOff className="h-3 w-3" /> Nezadáno — studenti nevidí
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-amber-200">
+              <EyeOff className="h-3 w-3" /> Nezadáno
             </span>
           )}
         </div>
-        <p className="mt-2 max-w-2xl text-muted-foreground">{assignment.description}</p>
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-          <span className="mono">Termín: {formatDateTime(assignment.dueAt)}</span>
+        {assignment.description && (
+          <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{assignment.description}</p>
+        )}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="mono inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+            <Clock className="h-3 w-3" /> {formatDateTime(assignment.dueAt)}
+          </span>
           {myUnit?.extension && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
-              <Clock className="h-3.5 w-3.5" /> Prodlouženo do: {formatDateTime(myUnit.extension)}
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-amber-200">
+              <Clock className="h-3 w-3" /> Prodlouženo do {formatDateTime(myUnit.extension)}
             </span>
           )}
         </div>
@@ -250,7 +259,7 @@ function EditAssignmentModal({
 
   const [title, setTitle] = useState(assignment.title);
   const [description, setDescription] = useState(assignment.description);
-  const [dueDate, setDueDate] = useState(assignment.dueAt.slice(0, 16));
+  const [dueDate, setDueDate] = useState(toLocalDatetimeInputValue(assignment.dueAt));
   const [targetType, setTargetType] = useState<"INDIVIDUAL" | "PAIR" | "GROUP">(
     assignment.targetType,
   );
@@ -290,7 +299,11 @@ function EditAssignmentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm text-sm">
+    <ModalBackdrop
+      onClose={onClose}
+      ariaLabel="Upravit zadání úkolu"
+      className="flex items-center justify-center p-4 text-sm"
+    >
       <div className="bg-surface rounded-2xl shadow-elevated border border-border max-w-lg w-full overflow-hidden">
         <header className="px-6 py-4 border-b border-border flex items-center justify-between bg-muted/30">
           <h3 className="font-display font-bold text-lg text-foreground">Upravit zadání úkolu</h3>
@@ -327,13 +340,7 @@ function EditAssignmentModal({
           <div className="grid grid-cols-2 gap-4">
             <label className="block text-xs font-semibold text-muted-foreground">
               Termín odevzdání
-              <input
-                type="datetime-local"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                required
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
-              />
+              <DateTimePicker value={dueDate} onChange={setDueDate} required className="mt-1" />
             </label>
 
             <label className="block text-xs font-semibold text-muted-foreground">
@@ -417,7 +424,7 @@ function EditAssignmentModal({
           </div>
         </form>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 
@@ -604,9 +611,9 @@ function StudentView({ assignment }: { assignment: AssignmentDetail }) {
   }
 
   return (
-    <section className="mt-8 space-y-5">
+    <section className="mt-6 space-y-4">
       {assignment.requiresConsent && assignment.myConsent && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 text-emerald-800 text-sm flex items-start gap-2.5 shadow-sm">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3.5 text-emerald-800 text-sm flex items-start gap-2.5 shadow-sm">
           <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5 text-emerald-600" />
           <div className="flex-1">
             <p className="font-semibold">Digitální souhlas byl udělen</p>
@@ -633,8 +640,8 @@ function StudentView({ assignment }: { assignment: AssignmentDetail }) {
       )}
 
       {unit.locked && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 text-sm flex items-start gap-2.5 shadow-sm">
-          <Lock className="h-5 w-5 shrink-0 mt-0.5 text-red-600" />
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3.5 text-red-800 text-sm flex items-start gap-2.5 shadow-sm">
+          <Lock className="h-4.5 w-4.5 shrink-0 mt-0.5 text-red-600" />
           <div>
             <p className="font-semibold">Odevzdávání je uzamčeno</p>
             <p className="text-xs text-red-700 mt-0.5">
@@ -645,8 +652,8 @@ function StudentView({ assignment }: { assignment: AssignmentDetail }) {
       )}
 
       {unit.extension && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4 text-amber-800 text-sm flex items-start gap-2.5 shadow-sm">
-          <Clock className="h-5 w-5 shrink-0 mt-0.5 text-amber-600" />
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3.5 text-amber-800 text-sm flex items-start gap-2.5 shadow-sm">
+          <Clock className="h-4.5 w-4.5 shrink-0 mt-0.5 text-amber-600" />
           <div>
             <p className="font-semibold">Máte prodloužený termín</p>
             <p className="text-xs text-amber-700 mt-0.5">
@@ -658,30 +665,20 @@ function StudentView({ assignment }: { assignment: AssignmentDetail }) {
       )}
 
       {(unit.grade || unit.feedback) && (
-        <div className="rounded-xl border border-border p-5 bg-card space-y-3 shadow-sm">
-          <h3 className="font-display font-bold text-base text-foreground flex items-center gap-1.5">
-            <GraduationCap className="h-5 w-5 text-subject" /> Hodnocení vyučujícího
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <h3 className="font-display font-semibold text-sm text-foreground flex items-center gap-1.5">
+            <GraduationCap className="h-4 w-4 text-subject" /> Hodnocení vyučujícího
           </h3>
-          <div className="grid gap-3 sm:grid-cols-[120px_1fr] items-start">
-            <div className="bg-subject-soft border border-subject/20 rounded-lg p-3 text-center">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">
-                Známka
-              </span>
-              <span className="text-3xl font-display font-extrabold text-subject block mt-1">
-                {unit.grade || "—"}
-              </span>
+          <div className="mt-2.5 flex items-start gap-3">
+            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-lg bg-subject text-subject-foreground">
+              <span className="text-2xl font-display font-extrabold">{unit.grade || "—"}</span>
             </div>
             {unit.feedback ? (
-              <div className="space-y-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">
-                  Slovní komentář
-                </span>
-                <p className="text-sm text-foreground leading-relaxed bg-muted/25 p-3 rounded-lg border border-border/40 whitespace-pre-wrap">
-                  {unit.feedback}
-                </p>
-              </div>
+              <p className="flex-1 text-sm text-foreground leading-relaxed bg-muted/25 p-2.5 rounded-lg border border-border/40 whitespace-pre-wrap">
+                {unit.feedback}
+              </p>
             ) : (
-              <p className="text-xs text-muted-foreground italic">
+              <p className="flex-1 text-xs text-muted-foreground italic self-center">
                 Vyučující nepřipojil žádný slovní komentář.
               </p>
             )}
@@ -689,16 +686,28 @@ function StudentView({ assignment }: { assignment: AssignmentDetail }) {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-display text-lg font-semibold flex items-center gap-2">
-          <Users2 className="h-5 w-5 text-subject" />
-          {assignment.targetType === "INDIVIDUAL"
-            ? "Moje odevzdání"
-            : `${unit.name}${unit.studyGroupName ? ` · ${unit.studyGroupName}` : ""}`}
-        </h2>
-      </div>
+      <h2 className="font-display text-base font-semibold flex items-center gap-1.5">
+        <Users2 className="h-4.5 w-4.5 text-subject" />
+        {assignment.targetType === "INDIVIDUAL"
+          ? "Moje odevzdání"
+          : `${unit.name}${unit.studyGroupName ? ` · ${unit.studyGroupName}` : ""}`}
+      </h2>
 
       {assignment.targetType === "PAIR" && user && <PairLatest unit={unit} myId={user.id} />}
+
+      {assignment.pairActivity && (
+        <div className="surface-card p-5">
+          <PairActivityChart
+            title={assignment.pairActivity.pairName}
+            subtitle="Kdo tento týden nahrál k tomuto úkolu"
+            lanes={
+              assignment.pairActivity.partner
+                ? [assignment.pairActivity.me, assignment.pairActivity.partner]
+                : [assignment.pairActivity.me]
+            }
+          />
+        </div>
+      )}
 
       <UnitVersions unit={unit} />
     </section>
@@ -872,7 +881,7 @@ function StaffUnits({ assignment }: { assignment: AssignmentDetail }) {
         <h2 className="font-display text-lg font-semibold flex items-center gap-2">
           <Users2 className="h-5 w-5 text-subject" /> Odevzdání a hodnocení
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {groupNames.length > 0 && (
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Skupina:

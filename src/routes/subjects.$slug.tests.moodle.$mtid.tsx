@@ -15,7 +15,7 @@ export const Route = createFileRoute("/subjects/$slug/tests/moodle/$mtid")({
   },
   loader: ({ params }) => getMoodleTestDetail({ data: params.mtid }),
   head: ({ loaderData }) => ({
-    meta: loaderData ? [{ title: `${loaderData.title} — Školka` }] : [],
+    meta: loaderData ? [{ title: `${loaderData.title} — Shtroodle` }] : [],
   }),
   component: MoodleTestDetailPage,
 });

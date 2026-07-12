@@ -17,6 +17,7 @@ function toSessionUser(u: {
   lastName: string;
   role: string;
   classId: string | null;
+  mustChangePassword: boolean;
 }): SessionUser {
   return {
     id: u.id,
@@ -25,6 +26,7 @@ function toSessionUser(u: {
     lastName: u.lastName,
     role: isRole(u.role) ? u.role : "STUDENT",
     classId: u.classId,
+    mustChangePassword: u.mustChangePassword,
   };
 }
 

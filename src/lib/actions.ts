@@ -5,9 +5,10 @@ import { zipSync } from "fflate";
 import { redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { hashPassword } from "@/lib/password";
+import { hashPassword, verifyPassword } from "@/lib/password";
+import { INITIAL_PASSWORD } from "@/lib/constants";
 import { generatePairsInGroupCore } from "@/lib/pairing";
-import { isStaff, ROLES } from "@/lib/roles";
+import { isStaff, ROLES, SUBJECT_THEMES } from "@/lib/roles";
 import {
   parseMoodleFile,
   gradeFromPercentage,
@@ -392,7 +393,7 @@ export const createSubject = createServerFn({ method: "POST" })
         description: z.string().default(""),
         // plain URL or a compressed data: URL from the cover-upload picker
         imageUrl: z.string().max(1_500_000).nullable().optional(),
-        themeStyle: z.enum(["loxone", "cad3d", "default"]),
+        themeStyle: z.enum(SUBJECT_THEMES),
         classId: z.string().min(1),
         teacherId: z.string().nullable().optional(),
       })
@@ -524,6 +525,72 @@ export const movePage = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// --- page blocks (content pages composed of freely-ordered blocks) ---
+
+const BLOCK_TYPES = ["TEXT", "MATERIALS", "ASSIGNMENTS"] as const;
+
+/** Appends a new block to the end of a page's block list. */
+export const createPageBlock = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ pageId: z.string().min(1), type: z.enum(BLOCK_TYPES) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    const last = await db.pageBlock.findFirst({
+      where: { pageId: data.pageId },
+      orderBy: { order: "desc" },
+    });
+    const created = await db.pageBlock.create({
+      data: { pageId: data.pageId, type: data.type, order: (last?.order ?? -1) + 1 },
+    });
+    return { id: created.id };
+  });
+
+/** Edits a TEXT block's content (MATERIALS/ASSIGNMENTS blocks have none to edit). */
+export const updatePageBlockContent = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().min(1), content: z.string() }).parse(d))
+  .handler(async ({ data }) => {
+    await requireStaff();
+    await db.pageBlock.update({ where: { id: data.id }, data: { content: data.content } });
+    return { ok: true };
+  });
+
+export const deletePageBlock = createServerFn({ method: "POST" })
+  .inputValidator((id: string) => z.string().parse(id))
+  .handler(async ({ data: id }) => {
+    await requireStaff();
+    await db.pageBlock.delete({ where: { id } });
+    return { ok: true };
+  });
+
+/** Moves a block up or down within its page (swaps order with its neighbour). */
+export const movePageBlock = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().min(1), direction: z.enum(["up", "down"]) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    const block = await db.pageBlock.findUnique({ where: { id: data.id } });
+    if (!block) throw new Error("Blok nenalezen.");
+
+    const blocks = await db.pageBlock.findMany({
+      where: { pageId: block.pageId },
+      orderBy: { order: "asc" },
+    });
+    const idx = blocks.findIndex((b) => b.id === block.id);
+    const swapWith = data.direction === "up" ? blocks[idx - 1] : blocks[idx + 1];
+    if (!swapWith) return { ok: true }; // already at the edge
+
+    const reordered = [...blocks];
+    [reordered[idx], reordered[blocks.indexOf(swapWith)]] = [swapWith, block];
+    for (let i = 0; i < reordered.length; i++) {
+      if (reordered[i].order !== i) {
+        await db.pageBlock.update({ where: { id: reordered[i].id }, data: { order: i } });
+      }
+    }
+    return { ok: true };
+  });
+
 // --- announcements ---
 
 export const createAnnouncement = createServerFn({ method: "POST" })
@@ -568,6 +635,18 @@ export const deleteAnnouncement = createServerFn({ method: "POST" })
   .handler(async ({ data: id }) => {
     await requireStaff();
     await db.announcement.delete({ where: { id } });
+    return { ok: true };
+  });
+
+/** Marks a student's announcements as read for a course (no-op for staff, who aren't enrolled). */
+export const markAnnouncementsRead = createServerFn({ method: "POST" })
+  .inputValidator((subjectId: string) => z.string().min(1).parse(subjectId))
+  .handler(async ({ data: subjectId }) => {
+    const user = await requireUser();
+    await db.enrollment.updateMany({
+      where: { userId: user.id, subjectId },
+      data: { announcementsReadAt: new Date() },
+    });
     return { ok: true };
   });
 
@@ -826,14 +905,6 @@ export const generatePairsInGroup = createServerFn({ method: "POST" })
 
 // --- users & enrollment ---
 
-/** Readable one-time password, e.g. "mrak-7342" — shown once after creation. */
-function generatePassword(): string {
-  const words = ["mrak", "vlak", "leto", "kolo", "les", "most", "vitr", "reka", "hora", "pole"];
-  const word = words[Math.floor(Math.random() * words.length)];
-  const digits = Math.floor(1000 + Math.random() * 9000);
-  return `${word}-${digits}`;
-}
-
 export const createUser = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
@@ -842,8 +913,6 @@ export const createUser = createServerFn({ method: "POST" })
         lastName: z.string().min(1),
         email: z.string().email(),
         role: z.enum(ROLES),
-        // Optional: when omitted the server generates one and returns it once.
-        password: z.string().min(4).optional(),
         classId: z.string().nullable().default(null),
       })
       .parse(d),
@@ -854,20 +923,125 @@ export const createUser = createServerFn({ method: "POST" })
     if (await db.user.findUnique({ where: { email } })) {
       throw new Error("Uživatel s tímto emailem už existuje.");
     }
-    const password = data.password ?? generatePassword();
+    // Every account starts on the same shared password and must change it
+    // before doing anything else — no admin-chosen or per-user password ever
+    // exists in plaintext beyond this one shared constant.
     const created = await db.user.create({
       data: {
         firstName: data.firstName,
         lastName: data.lastName,
         email,
         role: data.role,
-        passwordHash: hashPassword(password),
+        passwordHash: hashPassword(INITIAL_PASSWORD),
+        mustChangePassword: true,
         classId: data.role === "STUDENT" ? data.classId : null,
       },
     });
-    // Returned exactly once so the teacher can hand it to the student; the
-    // hash is all that's stored.
-    return { id: created.id, generatedPassword: data.password ? null : password };
+    return { id: created.id };
+  });
+
+/**
+ * Bulk account creation from a pasted list — one person per line, either
+ * "Jméno Příjmení" or "Jméno Příjmení; email@domain". Missing emails are
+ * generated from the name (diacritics stripped) and de-duplicated against
+ * both the database and the rest of the batch. Malformed or colliding lines
+ * are skipped and reported back rather than failing the whole batch, since a
+ * pasted class list commonly has a stray typo somewhere in 30 rows.
+ */
+export const bulkCreateUsers = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        role: z.enum(ROLES),
+        classId: z.string().nullable().default(null),
+        text: z.string().min(1),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    if (data.role === "STUDENT" && !data.classId) {
+      throw new Error("Vyberte třídu pro nové žáky.");
+    }
+
+    const lines = data.text
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) throw new Error("Zadejte alespoň jednoho uživatele.");
+
+    const existingEmails = new Set(
+      (await db.user.findMany({ select: { email: true } })).map((u) => u.email),
+    );
+
+    const created: { name: string; email: string; password: string }[] = [];
+    const skipped: { line: string; reason: string }[] = [];
+
+    for (const line of lines) {
+      let namePart = line;
+      let explicitEmail: string | null = null;
+      const semiIdx = line.indexOf(";");
+      if (semiIdx !== -1) {
+        namePart = line.slice(0, semiIdx).trim();
+        explicitEmail = line.slice(semiIdx + 1).trim();
+      } else {
+        const tokens = line.split(/\s+/);
+        const last = tokens[tokens.length - 1];
+        if (last?.includes("@")) {
+          explicitEmail = last;
+          namePart = tokens.slice(0, -1).join(" ");
+        }
+      }
+
+      const words = namePart.split(/\s+/).filter(Boolean);
+      if (words.length < 2) {
+        skipped.push({ line, reason: 'Chybí jméno a příjmení (očekává se "Jméno Příjmení").' });
+        continue;
+      }
+      const lastName = words[words.length - 1];
+      const firstName = words.slice(0, -1).join(" ");
+
+      let email: string;
+      if (explicitEmail) {
+        email = explicitEmail.toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          skipped.push({ line, reason: `Neplatný email "${explicitEmail}".` });
+          continue;
+        }
+      } else {
+        const firstSlug = slugify(firstName);
+        const lastSlug = slugify(lastName);
+        const base = firstSlug && lastSlug ? `${firstSlug}.${lastSlug}` : "student";
+        let candidate = `${base}@shtroodle.cz`;
+        let n = 2;
+        while (existingEmails.has(candidate)) {
+          candidate = `${base}${n}@shtroodle.cz`;
+          n++;
+        }
+        email = candidate;
+      }
+
+      if (existingEmails.has(email)) {
+        skipped.push({ line, reason: `Email "${email}" už existuje nebo je v seznamu dvakrát.` });
+        continue;
+      }
+      existingEmails.add(email);
+
+      await db.user.create({
+        data: {
+          firstName,
+          lastName,
+          email,
+          role: data.role,
+          passwordHash: hashPassword(INITIAL_PASSWORD),
+          mustChangePassword: true,
+          classId: data.role === "STUDENT" ? data.classId : null,
+        },
+      });
+      created.push({ name: `${firstName} ${lastName}`, email, password: INITIAL_PASSWORD });
+    }
+
+    return { created, skipped };
   });
 
 export const enrollStudents = createServerFn({ method: "POST" })
@@ -927,15 +1101,46 @@ export const deleteUser = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/**
+ * Staff-initiated reset. Always resets to the shared INITIAL_PASSWORD and
+ * forces a change on next login — staff never choose or see a user's actual
+ * password, only ever this one well-known shared default.
+ */
 export const setUserPassword = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) =>
-    z.object({ id: z.string().min(1), password: z.string().min(4) }).parse(d),
-  )
+  .inputValidator((d: unknown) => z.object({ id: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
     await requireStaff();
     await db.user.update({
       where: { id: data.id },
-      data: { passwordHash: hashPassword(data.password) },
+      data: { passwordHash: hashPassword(INITIAL_PASSWORD), mustChangePassword: true },
+    });
+    return { ok: true };
+  });
+
+/**
+ * Self-service password change (§ account page) — the only way a student can
+ * ever change their own password, since /admin is staff-only. Requires the
+ * current password so a session left open on a shared school PC can't be
+ * used to lock the real owner out.
+ */
+export const changeOwnPassword = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(4),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const me = await requireUser();
+    const user = await db.user.findUniqueOrThrow({ where: { id: me.id } });
+    if (!verifyPassword(data.currentPassword, user.passwordHash)) {
+      throw new Error("Současné heslo není správné.");
+    }
+    await db.user.update({
+      where: { id: me.id },
+      data: { passwordHash: hashPassword(data.newPassword), mustChangePassword: false },
     });
     return { ok: true };
   });
@@ -991,7 +1196,7 @@ export const updateSubject = createServerFn({ method: "POST" })
         description: z.string().default(""),
         // plain URL or a compressed data: URL from the cover-upload picker
         imageUrl: z.string().max(1_500_000).nullable().optional(),
-        themeStyle: z.enum(["loxone", "cad3d", "default"]),
+        themeStyle: z.enum(SUBJECT_THEMES),
         classId: z.string().min(1).optional(),
         teacherId: z.string().nullable().optional(),
       })
@@ -1019,6 +1224,178 @@ export const deleteSubject = createServerFn({ method: "POST" })
     await requireStaff();
     await db.subject.delete({ where: { id } });
     return { ok: true };
+  });
+
+/**
+ * Deep-clones a subject's structure — pages, blocks, files (physically
+ * copied on disk, not shared), assignments (shells only), tests/questions —
+ * into a brand-new subject in the same class. Deliberately excludes all
+ * roster/student data: enrollments, study groups, pairs, submissions,
+ * grades, consents, late penalties, announcements, Moodle imports and test
+ * attempts. The duplicate starts empty of students and unpublished where the
+ * source was published, so a teacher can safely prep next year's course from
+ * this year's without dragging along anyone's work.
+ */
+export const duplicateSubject = createServerFn({ method: "POST" })
+  .inputValidator((id: string) => z.string().parse(id))
+  .handler(async ({ data: id }) => {
+    await requireStaff();
+
+    const source = await db.subject.findUnique({
+      where: { id },
+      include: {
+        gradingSettings: true,
+        pages: {
+          orderBy: { order: "asc" },
+          include: {
+            blocks: { orderBy: { order: "asc" } },
+            files: { orderBy: { order: "asc" } },
+          },
+        },
+        assignments: true,
+        tests: {
+          include: { questions: { orderBy: { order: "asc" }, include: { options: true } } },
+        },
+      },
+    });
+    if (!source) throw new Error("Předmět nenalezen.");
+
+    const base = slugify(`${source.name}-kopie`) || "predmet-kopie";
+    let slug = base;
+    for (let n = 2; await db.subject.findUnique({ where: { slug } }); n++) {
+      slug = `${base}-${n}`;
+    }
+
+    const clone = await db.subject.create({
+      data: {
+        name: `${source.name} (kopie)`,
+        slug,
+        description: source.description,
+        imageUrl: source.imageUrl,
+        themeStyle: source.themeStyle,
+        classId: source.classId,
+        teacherId: source.teacherId,
+      },
+    });
+
+    if (source.gradingSettings) {
+      await db.subjectGradingSettings.create({
+        data: {
+          subjectId: clone.id,
+          grade1Min: source.gradingSettings.grade1Min,
+          grade2Min: source.gradingSettings.grade2Min,
+          grade3Min: source.gradingSettings.grade3Min,
+          grade4Min: source.gradingSettings.grade4Min,
+          latePenaltyEnabled: source.gradingSettings.latePenaltyEnabled,
+          latePenaltyWeight: source.gradingSettings.latePenaltyWeight,
+        },
+      });
+    }
+
+    const pageIdMap = new Map<string, string>();
+    for (const page of source.pages) {
+      const newPage = await db.subjectPage.create({
+        data: {
+          subjectId: clone.id,
+          title: page.title,
+          slug: page.slug,
+          template: page.template,
+          order: page.order,
+        },
+      });
+      pageIdMap.set(page.id, newPage.id);
+
+      for (const block of page.blocks) {
+        await db.pageBlock.create({
+          data: {
+            pageId: newPage.id,
+            type: block.type,
+            content: block.content,
+            order: block.order,
+          },
+        });
+      }
+
+      for (const file of page.files) {
+        const sourceAbs = resolve(process.cwd(), file.fileKey);
+        const safeName = file.fileName.replace(/[^\w.-]+/g, "_").slice(-80) || "soubor";
+        const relativeKey = `course_files/${newPage.id}/${Date.now().toString(36)}__${safeName}`;
+        try {
+          const bytes = readFileSync(sourceAbs);
+          const destAbs = resolve(process.cwd(), relativeKey);
+          mkdirSync(dirname(destAbs), { recursive: true });
+          writeFileSync(destAbs, bytes);
+        } catch (err) {
+          console.error(`Nepodařilo se zkopírovat soubor ${file.fileName} z disku:`, err);
+          continue; // skip this file's DB row if the physical copy failed
+        }
+        await db.subjectFile.create({
+          data: {
+            pageId: newPage.id,
+            label: file.label,
+            fileName: file.fileName,
+            fileKey: relativeKey,
+            fileSize: file.fileSize,
+            mimeType: file.mimeType,
+            category: file.category,
+            description: file.description,
+            order: file.order,
+            isPublished: file.isPublished,
+          },
+        });
+      }
+    }
+
+    for (const a of source.assignments) {
+      await db.assignment.create({
+        data: {
+          title: a.title,
+          description: a.description,
+          dueDate: a.dueDate,
+          subjectId: clone.id,
+          targetType: a.targetType,
+          isPublished: false, // shell only — teacher re-publishes when ready
+          requiresConsent: a.requiresConsent,
+          consentText: a.consentText,
+          pageId: a.pageId ? (pageIdMap.get(a.pageId) ?? null) : null,
+        },
+      });
+    }
+
+    for (const t of source.tests) {
+      const newTest = await db.test.create({
+        data: {
+          subjectId: clone.id,
+          title: t.title,
+          description: t.description,
+          isPublished: false,
+          timeLimit: t.timeLimit,
+        },
+      });
+      for (const q of t.questions) {
+        const newQuestion = await db.question.create({
+          data: {
+            testId: newTest.id,
+            text: q.text,
+            type: q.type,
+            points: q.points,
+            order: q.order,
+          },
+        });
+        for (const o of q.options) {
+          await db.questionOption.create({
+            data: {
+              questionId: newQuestion.id,
+              text: o.text,
+              isCorrect: o.isCorrect,
+              order: o.order,
+            },
+          });
+        }
+      }
+    }
+
+    return { id: clone.id, slug: clone.slug };
   });
 
 /** Marks a course page as the currently taught topic ("aktivní látka"), or clears it (pageId: null). */

@@ -3,6 +3,7 @@ import {
   Outlet,
   Link,
   createRootRouteWithContext,
+  redirect,
   useRouter,
   useRouterState,
   HeadContent,
@@ -12,6 +13,7 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
 import { SiteHeader } from "@/components/site-header";
 import { StudentPanelDrawer } from "@/components/student-panel";
 import { DialogProvider } from "@/components/dialog-provider";
@@ -77,8 +79,18 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   );
 }
 
+// Paths reachable while a forced password change is pending — everywhere
+// else redirects to /account until the user sets their own password.
+const PASSWORD_CHANGE_EXEMPT = new Set(["/account", "/auth"]);
+
 export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()({
-  beforeLoad: async () => ({ user: await getCurrentUser() }),
+  beforeLoad: async ({ location }) => {
+    const user = await getCurrentUser();
+    if (user?.mustChangePassword && !PASSWORD_CHANGE_EXEMPT.has(location.pathname)) {
+      throw redirect({ to: "/account" });
+    }
+    return { user };
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -108,8 +120,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
         <HeadContent />
       </head>
       <body>

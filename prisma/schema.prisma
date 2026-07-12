@@ -16,15 +16,18 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  firstName    String
-  lastName     String
-  role         String   @default("STUDENT") // ADMIN | TEACHER | STUDENT
-  classId      String? // students belong to a class (2EB, …)
-  class        Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
-  createdAt    DateTime @default(now())
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  passwordHash       String
+  // Set whenever an account is created or reset to the shared initial
+  // password; forces a change on next login before anything else is usable.
+  mustChangePassword Boolean  @default(false)
+  firstName          String
+  lastName           String
+  role               String   @default("STUDENT") // ADMIN | TEACHER | STUDENT
+  classId            String? // students belong to a class (2EB, …)
+  class              Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
+  createdAt          DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   sessions            Session[]
@@ -231,6 +234,17 @@ model LatePenalty {
   @@index([userId])
 }
 
+/**
+ * Failed login attempts, used to rate-limit brute-force guessing per account.
+ */
+model FailedLogin {
+  id        String   @id @default(uuid())
+  email     String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
 // Teaching group inside a subject — the class splits into these for lessons
 // (Loxone → L1, L2, L3; CAD → S1, S2). Pairs live inside a study group.
 model StudyGroup {
@@ -282,9 +296,12 @@ model PairMember {
   @@index([userId])
 }
 
-// A page inside a subject, switched via the left panel. Pages are plain
-// content by default; `template` selects a page template instead ("assignments"
-// renders the live assignment list). More templates can be added later.
+// A page inside a subject, switched via the left panel. `template: "content"`
+// pages are composed of an ordered list of PageBlocks (text/materials/
+// assignments, freely arranged); `template: "assignments"` instead renders
+// the whole subject's live assignment list and ignores blocks. `content` and
+// `showAssignments` are legacy fields, kept only so older rows read back
+// during the one-time backfill into blocks — new pages don't write to them.
 model SubjectPage {
   id              String   @id @default(uuid())
   subjectId       String
@@ -292,18 +309,37 @@ model SubjectPage {
   title           String
   slug            String // URL: /subjects/<subject>/p/<slug>
   template        String   @default("content") // content | assignments
-  content         String   @default("") // simple markdown-like text for content pages
+  content         String   @default("") // legacy: pre-block-system page text
   order           Int      @default(0)
-  showAssignments Boolean  @default(false)
+  showAssignments Boolean  @default(false) // legacy: pre-block-system assignments toggle
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   files       SubjectFile[]
   assignments Assignment[]
+  blocks      PageBlock[]
   activeOf    Subject[]     @relation("ActiveTopic")
 
   @@unique([subjectId, slug])
   @@index([subjectId])
+}
+
+// One block of a content page's body, freely ordered by the teacher — TEXT
+// blocks hold their own markdown-lite text; MATERIALS and ASSIGNMENTS blocks
+// are purely structural placement markers that render the page's existing
+// files / page-scoped assignments (those stay page-scoped, not block-scoped,
+// so at most one of each type is meaningful per page).
+model PageBlock {
+  id        String      @id @default(uuid())
+  pageId    String
+  page      SubjectPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  type      String // TEXT | MATERIALS | ASSIGNMENTS
+  content   String      @default("") // TEXT blocks only
+  order     Int         @default(0)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([pageId])
 }
 
 // A downloadable file attached to a subject page (presentations, manuals, schemas…).
@@ -325,11 +361,12 @@ model SubjectFile {
 }
 
 model Enrollment {
-  id        String  @id @default(uuid())
-  userId    String
-  subjectId String
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  id                  String    @id @default(uuid())
+  userId              String
+  subjectId           String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject             Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  announcementsReadAt DateTime?
 
   @@unique([userId, subjectId]) // a student can't be enrolled twice
   @@index([subjectId])

@@ -23,6 +23,8 @@ import { formatDateTime, formatDate } from "@/lib/format";
 import { TARGET_LABEL, type StudentCardData, type StudentCardRow } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { ModalBackdrop } from "@/components/modal-backdrop";
+import { INITIAL_PASSWORD } from "@/lib/constants";
 
 export const Route = createFileRoute("/subjects/$slug/students/$sid")({
   beforeLoad: ({ context }) => {
@@ -30,7 +32,7 @@ export const Route = createFileRoute("/subjects/$slug/students/$sid")({
   },
   loader: ({ params }) => getStudentCard({ data: { slug: params.slug, studentId: params.sid } }),
   head: ({ loaderData }) => ({
-    meta: loaderData ? [{ title: `${loaderData.student.name} — Školka` }] : [],
+    meta: loaderData ? [{ title: `${loaderData.student.name} — Shtroodle` }] : [],
   }),
   component: StudentCardPage,
 });
@@ -39,7 +41,7 @@ function StudentCardPage() {
   const data = Route.useLoaderData() as StudentCardData;
   const { slug } = Route.useParams();
   const router = useRouter();
-  const { confirm, prompt } = useDialog();
+  const { confirm } = useDialog();
   const deleteUserFn = useServerFn(deleteUser);
   const setPasswordFn = useServerFn(setUserPassword);
 
@@ -75,22 +77,16 @@ function StudentCardPage() {
   };
 
   const handleResetPassword = async () => {
-    const pw = await prompt({
-      title: "Nastavit nové heslo",
-      message: "Zadejte nové přístupové heslo pro studenta (min. 4 znaky).",
-      defaultValue: "heslo123",
-      confirmLabel: "Nastavit heslo",
+    const ok = await confirm({
+      title: "Resetovat heslo?",
+      message: `Heslo se nastaví na sdílené výchozí heslo (${INITIAL_PASSWORD}) a student si ho bude muset při příštím přihlášení změnit na vlastní.`,
     });
-    if (!pw) return;
-    if (pw.length < 4) {
-      toast.error("Heslo musí mít alespoň 4 znaky.");
-      return;
-    }
+    if (!ok) return;
 
     setBusy(true);
     try {
-      await setPasswordFn({ data: { id: data.student.id, password: pw } });
-      toast.success("Nové heslo bylo úspěšně nastaveno.");
+      await setPasswordFn({ data: { id: data.student.id } });
+      toast.success("Heslo bylo resetováno na výchozí — student si ho musí při přihlášení změnit.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Nastavení hesla selhalo.");
     } finally {
@@ -419,7 +415,11 @@ function EditStudentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm text-sm">
+    <ModalBackdrop
+      onClose={onClose}
+      ariaLabel={`Upravit studenta: ${student.name}`}
+      className="flex items-center justify-center p-4 text-sm"
+    >
       <form
         onSubmit={submit}
         className="bg-surface rounded-2xl shadow-elevated border border-border max-w-md w-full overflow-hidden"
@@ -506,6 +506,6 @@ function EditStudentModal({
           </button>
         </footer>
       </form>
-    </div>
+    </ModalBackdrop>
   );
 }

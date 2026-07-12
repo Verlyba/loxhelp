@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clock, ListTodo, ChevronRight, X } from "lucide-react";
 import { getStudentPanel } from "@/lib/data";
 import type { StudentTask, TaskStatus } from "@/lib/types";
@@ -94,8 +94,17 @@ export function StudentPanelDrawer() {
   const [open, setOpen] = useState(false);
   const pending = (data?.tasks ?? []).filter((t) => t.status !== "submitted").length;
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   return (
-    <div className="xl:hidden">
+    <div className="no-print xl:hidden">
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -117,7 +126,12 @@ export function StudentPanelDrawer() {
             onClick={() => setOpen(false)}
             className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
           />
-          <div className="absolute right-0 top-0 flex h-full w-[88%] max-w-sm flex-col overflow-y-auto bg-background p-4 shadow-[var(--shadow-elevated)]">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Můj panel"
+            className="absolute right-0 top-0 flex h-full w-[88%] max-w-sm flex-col overflow-y-auto bg-background p-4 shadow-[var(--shadow-elevated)]"
+          >
             <div className="mb-3 flex items-center justify-between">
               <span className="font-display text-base font-semibold">Můj panel</span>
               <button

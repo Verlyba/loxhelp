@@ -17,6 +17,8 @@ import { isStaff, roleLabel, type Role } from "@/lib/roles";
 import { useUser } from "@/lib/use-user";
 import { initials, fullName } from "@/lib/user-display";
 import { logout } from "@/lib/auth";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { DirectorySearch } from "@/components/directory-search";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -50,16 +52,16 @@ export function SiteHeader() {
   const isActive = (to: string) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface/85 backdrop-blur supports-[backdrop-filter]:bg-surface/70">
+    <header className="no-print sticky top-0 z-40 border-b border-border bg-surface/85 backdrop-blur supports-[backdrop-filter]:bg-surface/70">
       <div className="mx-auto flex h-14 max-w-[120rem] items-center gap-4 px-4 sm:px-6">
         <Link
           to="/"
           className="flex items-center gap-2 font-display text-base font-semibold tracking-tight"
         >
           <span className="grid h-7 w-7 place-items-center rounded-md bg-foreground text-background text-[11px] font-bold">
-            ŠK
+            SH
           </span>
-          Školka
+          Shtroodle
         </Link>
 
         <nav className="ml-4 hidden md:flex items-center gap-1">
@@ -83,7 +85,10 @@ export function SiteHeader() {
           })}
         </nav>
 
+        {user && isStaff(user.role) && <DirectorySearch />}
+
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           {user ? (
             <>
               <UserMenu />

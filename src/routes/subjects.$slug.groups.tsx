@@ -1,8 +1,7 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Plus, Search, Trash2, UserPlus, Users2, X, Pencil, Check } from "lucide-react";
-import { PairActivityChart } from "@/components/pair-activity-chart";
+import { Plus, Search, Trash2, UserPlus, Users2, X, Pencil, Check, BarChart3 } from "lucide-react";
 import { requireStaff } from "@/lib/guards";
 import { getSubjectGroups } from "@/lib/data";
 import {
@@ -16,9 +15,11 @@ import {
   enrollStudents,
   unenrollStudent,
 } from "@/lib/actions";
-import type { StudyGroupView, SubjectGroupsData } from "@/lib/types";
+import type { PairView, StudyGroupView, SubjectGroupsData } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
+import { ModalBackdrop } from "@/components/modal-backdrop";
+import { PairActivityChart } from "@/components/pair-activity-chart";
 
 export const Route = createFileRoute("/subjects/$slug/groups")({
   beforeLoad: ({ context }) => {
@@ -26,7 +27,7 @@ export const Route = createFileRoute("/subjects/$slug/groups")({
   },
   loader: ({ params }) => getSubjectGroups({ data: params.slug }),
   head: () => ({
-    meta: [{ title: "Skupiny a dvojice — Školka" }],
+    meta: [{ title: "Skupiny a dvojice — Shtroodle" }],
   }),
   component: GroupsPage,
 });
@@ -91,7 +92,7 @@ function GroupsPage() {
             Zatím nebyla vytvořena žádná učební skupina.
           </p>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4">
             {data.studyGroups.map((g) => (
               <StudyGroupCard
                 key={g.id}
@@ -357,48 +358,29 @@ function StudyGroupCard({
         </div>
       </div>
 
-      {/* Existing pairs — with a step chart of who's uploaded each week */}
+      {/* Existing pairs — membership plus per-assignment grades/activity */}
       {group.pairs.length > 0 && (
         <ul className="mt-3 grid gap-2.5">
           {group.pairs.map((p) => (
-            <li key={p.id} className="rounded-lg border border-border bg-card px-3 py-2">
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="text-foreground">
-                  <span className="font-semibold text-subject">{p.name}:</span>{" "}
-                  {p.members.map((m) => m.name).join(" + ")}
-                </span>
-                <button
-                  onClick={async () => {
-                    const ok = await confirm({
-                      title: `Zrušit ${p.name}?`,
-                      message: `Dvojice ${p.members.map((m) => m.name).join(" + ")} bude zrušena. Studenti zůstanou ve skupině jako nezařazení.`,
-                      danger: true,
-                    });
-                    if (!ok) return;
-                    setBusy(true);
-                    try {
-                      await delPair({ data: p.id });
-                      await router.invalidate();
-                    } finally {
-                      setBusy(false);
-                    }
-                  }}
-                  aria-label={`Zrušit ${p.name}`}
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-red-50 transition-colors"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-              {p.activity.length > 0 && (
-                <div className="mt-2 border-t border-border/60 pt-2">
-                  <PairActivityChart
-                    title=""
-                    subtitle="Kdo tento týden nahrál"
-                    lanes={p.activity}
-                  />
-                </div>
-              )}
-            </li>
+            <PairRow
+              key={p.id}
+              pair={p}
+              onDelete={async () => {
+                const ok = await confirm({
+                  title: `Zrušit ${p.name}?`,
+                  message: `Dvojice ${p.members.map((m) => m.name).join(" + ")} bude zrušena. Studenti zůstanou ve skupině jako nezařazení.`,
+                  danger: true,
+                });
+                if (!ok) return;
+                setBusy(true);
+                try {
+                  await delPair({ data: p.id });
+                  await router.invalidate();
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
           ))}
         </ul>
       )}
@@ -442,6 +424,66 @@ function StudyGroupCard({
         </div>
       )}
     </div>
+  );
+}
+
+/** One pair: membership row, plus an expandable per-assignment grades/activity panel. */
+function PairRow({ pair, onDelete }: { pair: PairView; onDelete: () => void }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <li className="rounded-lg border border-border bg-card px-3 py-2">
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="text-foreground">
+          <span className="font-semibold text-subject">{pair.name}:</span>{" "}
+          {pair.members.map((m) => m.name).join(" + ")}
+        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          {pair.assignments.length > 0 && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              {expanded ? "Skrýt" : "Známky a aktivita"}
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            aria-label={`Zrušit ${pair.name}`}
+            className="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-red-50 transition-colors"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 space-y-3 border-t border-border pt-3">
+          {pair.assignments.map((a) => (
+            <div key={a.assignmentId} className="rounded-md border border-border/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-foreground">{a.title}</span>
+                <div className="flex items-center gap-2">
+                  {a.grades.map((g) => (
+                    <span
+                      key={g.memberId}
+                      className="inline-flex items-center gap-1 rounded-full bg-subject-soft px-2 py-0.5 text-[11px] font-medium ring-1 ring-subject/20"
+                      title={g.memberName}
+                    >
+                      {g.memberName.split(" ")[0]}: {g.grade ?? "—"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2">
+                <PairActivityChart subtitle="Kdo tento týden nahrál" lanes={a.activity} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -519,19 +561,14 @@ function GroupModal({
     }
   };
 
+  const modalTitle =
+    mode === "create" ? "Nová učební skupina" : `Členové skupiny ${existingGroup?.name}`;
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
-      >
+    <ModalBackdrop onClose={onClose} ariaLabel={modalTitle}>
+      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]">
         <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
-          <h3 className="font-display text-lg font-bold text-foreground">
-            {mode === "create" ? "Nová učební skupina" : `Členové skupiny ${existingGroup?.name}`}
-          </h3>
+          <h3 className="font-display text-lg font-bold text-foreground">{modalTitle}</h3>
           <button
             onClick={onClose}
             aria-label="Zavřít"
@@ -622,7 +659,7 @@ function GroupModal({
           </button>
         </footer>
       </div>
-    </div>
+    </ModalBackdrop>
   );
 }
 

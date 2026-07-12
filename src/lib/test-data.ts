@@ -14,6 +14,26 @@ async function assertEnrolledOrStaff(user: { id: string; role: Role }, subjectId
   if (!enrolled) throw redirect({ to: "/subjects" });
 }
 
+// The countdown that enforces a test's time limit runs entirely in the
+// student's browser (setInterval + auto-submit) — nothing on the server
+// checks it, so a closed tab, a throttled background timer, or a direct
+// call to submitTestAttempt would otherwise be silently accepted as if
+// submitted on time. Rather than reject a late submission outright (which
+// would strand a student mid-test with no way to retry), every read path
+// below surfaces `isLate` so the teacher — and the student, for fairness —
+// can see it and grade accordingly.
+const LATE_GRACE_MS = 30_000; // network/latency slack for the auto-submit request itself
+
+function isAttemptLate(
+  timeLimit: number | null,
+  startedAt: Date,
+  submittedAt: Date | null,
+): boolean {
+  if (!timeLimit || !submittedAt) return false;
+  const deadline = startedAt.getTime() + timeLimit * 60 * 1000 + LATE_GRACE_MS;
+  return submittedAt.getTime() > deadline;
+}
+
 export const getTestsList = createServerFn({ method: "GET" })
   .inputValidator((slug: string) => z.string().parse(slug))
   .handler(async ({ data: slug }) => {
@@ -72,6 +92,7 @@ export const getTestsList = createServerFn({ method: "GET" })
                 startedAt: myAttempt.startedAt.toISOString(),
                 submittedAt: myAttempt.submittedAt?.toISOString() ?? null,
                 score: myAttempt.score,
+                isLate: isAttemptLate(t.timeLimit, myAttempt.startedAt, myAttempt.submittedAt),
               }
             : null,
           attemptsCount: t.attempts.length, // Total attempts (staff can see this)
@@ -138,6 +159,7 @@ export const getTestDetail = createServerFn({ method: "GET" })
             submittedAt: myAttempt.submittedAt?.toISOString() ?? null,
             score: myAttempt.score,
             feedback: myAttempt.feedback,
+            isLate: isAttemptLate(test.timeLimit, myAttempt.startedAt, myAttempt.submittedAt),
           }
         : null,
       questions: test.questions.map((q) => ({
@@ -200,6 +222,7 @@ export const getTestAttempt = createServerFn({ method: "GET" })
       submittedAt: attempt.submittedAt?.toISOString() ?? null,
       score: attempt.score,
       feedback: attempt.feedback,
+      isLate: isAttemptLate(attempt.test.timeLimit, attempt.startedAt, attempt.submittedAt),
       maxPoints,
       subject: {
         name: attempt.test.subject.name,
@@ -265,6 +288,7 @@ export const getTestAttemptsAll = createServerFn({ method: "GET" })
         submittedAt: a.submittedAt?.toISOString() ?? null,
         score: a.score,
         maxPoints,
+        isLate: isAttemptLate(a.test.timeLimit, a.startedAt, a.submittedAt),
       };
     });
   });
