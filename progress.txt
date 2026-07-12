@@ -43,7 +43,7 @@
     - UI učitele: u každého člena jednotky (včetně dvojic/skupin) svítí ✓/✗ indikátor souhlasu a dole na stránce je tabulka „Evidence digitálních souhlasů“ pro právní krytí.
 
 [x] Modul Testy – Správa testů (§2).
-    Hotovo (iterace 5, commit [next]):
+    Hotovo (iterace 5, commit 89e359b):
     - Schéma v DB pushnuto: Test, Question, QuestionOption, TestAttempt, Answer modely.
     - CRUD mutace a data loaders na backendu (test-actions, test-data) s RBAC kontrolami a skrýváním správných voleb pro studenty před odevzdáním.
     - Odpočet času na frontendu studenta s automatickým odevzdáním po vypršení limitu.
