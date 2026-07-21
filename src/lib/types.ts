@@ -123,6 +123,7 @@ export interface SubjectPageNav {
   title: string;
   slug: string;
   template: PageTemplate;
+  isPinned: boolean;
 }
 
 export interface SubjectPageDetail extends SubjectPageNav {
@@ -134,7 +135,7 @@ export interface SubjectPageDetail extends SubjectPageNav {
   blocks: PageBlockView[];
 }
 
-export const BLOCK_TYPES = ["TEXT", "MATERIALS", "ASSIGNMENTS"] as const;
+export const BLOCK_TYPES = ["TEXT", "MATERIALS", "ASSIGNMENTS", "EMBED"] as const;
 export type BlockType = (typeof BLOCK_TYPES)[number];
 
 /** One block of a "content" template page's body — see PageBlock in schema.prisma. */
@@ -143,6 +144,34 @@ export interface PageBlockView {
   type: BlockType;
   content: string;
   order: number;
+  embed: PageEmbedView | null;
+}
+
+/** EMBED block config — see PageEmbed in schema.prisma. */
+export interface PageEmbedView {
+  kind: "code" | "zip";
+  html: string;
+  css: string;
+  js: string;
+  width: number;
+  height: number;
+}
+
+/* ---------- ŠVP roadmap ---------- */
+
+export interface RoadmapTopicView {
+  id: string;
+  order: number;
+  title: string;
+  covers: string;
+  outcomes: string;
+}
+
+export interface RoadmapView {
+  gradeLabel: string;
+  partLabel: string | null;
+  updatedAt: string; // ISO
+  topics: RoadmapTopicView[];
 }
 
 export interface AssignmentBrief {

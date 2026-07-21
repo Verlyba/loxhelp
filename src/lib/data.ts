@@ -41,6 +41,7 @@ import type {
   SubjectGroupsData,
   SubjectMaterialsData,
   PairWeeklyComparison,
+  RoadmapView,
   SearchResult,
   WeekBucket,
   TargetType,
@@ -623,7 +624,7 @@ export const getSubject = createServerFn({ method: "GET" })
         _count: { select: { assignments: true, enrollments: true } },
         pages: {
           orderBy: { order: "asc" },
-          select: { id: true, title: true, slug: true, template: true },
+          select: { id: true, title: true, slug: true, template: true, isPinned: true },
         },
         assignments: { orderBy: { dueDate: "asc" } },
       },
@@ -755,6 +756,7 @@ export const getSubject = createServerFn({ method: "GET" })
         title: p.title,
         slug: p.slug,
         template: p.template === "assignments" ? ("assignments" as const) : ("content" as const),
+        isPinned: p.isPinned,
       })),
       studentPanel,
       staffPanel,
@@ -846,6 +848,35 @@ export const getAnnouncements = createServerFn({ method: "GET" })
     }));
   });
 
+/** A subject's ŠVP roadmap, or null if the teacher hasn't authored one yet. */
+export const getRoadmap = createServerFn({ method: "GET" })
+  .inputValidator((slug: string) => z.string().parse(slug))
+  .handler(async ({ data: slug }): Promise<RoadmapView | null> => {
+    const user = await requireUser();
+    const subject = await db.subject.findUnique({ where: { slug }, select: { id: true } });
+    if (!subject) throw redirect({ to: "/subjects" });
+    await assertEnrolledOrStaff(user, subject.id);
+
+    const roadmap = await db.roadmap.findUnique({
+      where: { subjectId: subject.id },
+      include: { topics: { orderBy: { order: "asc" } } },
+    });
+    if (!roadmap) return null;
+
+    return {
+      gradeLabel: roadmap.gradeLabel,
+      partLabel: roadmap.partLabel,
+      updatedAt: roadmap.updatedAt.toISOString(),
+      topics: roadmap.topics.map((t) => ({
+        id: t.id,
+        order: t.order,
+        title: t.title,
+        covers: t.covers,
+        outcomes: t.outcomes,
+      })),
+    };
+  });
+
 /** One subject page (content + metadata). Enrollment is enforced like getSubject. */
 export const getSubjectPage = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) =>
@@ -861,7 +892,7 @@ export const getSubjectPage = createServerFn({ method: "GET" })
         subject: { select: { id: true, slug: true } },
         // Students see only published materials (PRD §5A); staff see drafts too.
         files: { where: staff ? {} : { isPublished: true }, orderBy: { order: "asc" } },
-        blocks: { orderBy: { order: "asc" } },
+        blocks: { orderBy: { order: "asc" }, include: { embed: true } },
       },
     });
     if (!page) throw redirect({ to: "/subjects/$slug", params: { slug: data.subjectSlug } });
@@ -915,6 +946,7 @@ export const getSubjectPage = createServerFn({ method: "GET" })
       title: page.title,
       slug: page.slug,
       template: page.template === "assignments" ? ("assignments" as const) : ("content" as const),
+      isPinned: page.isPinned,
       content: page.content,
       showAssignments: page.showAssignments,
       assignments: hasAssignmentsBlock || staff ? assignments : [],
@@ -934,6 +966,16 @@ export const getSubjectPage = createServerFn({ method: "GET" })
         type: b.type as PageBlockView["type"],
         content: b.content,
         order: b.order,
+        embed: b.embed
+          ? {
+              kind: b.embed.kind === "zip" ? ("zip" as const) : ("code" as const),
+              html: b.embed.html,
+              css: b.embed.css,
+              js: b.embed.js,
+              width: b.embed.width,
+              height: b.embed.height,
+            }
+          : null,
       })),
     };
   });

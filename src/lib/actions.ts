@@ -467,6 +467,7 @@ export const updateSubjectPage = createServerFn({ method: "POST" })
         title: z.string().min(1).optional(),
         content: z.string().optional(),
         showAssignments: z.boolean().optional(),
+        isPinned: z.boolean().optional(),
       })
       .parse(d),
   )
@@ -476,10 +477,12 @@ export const updateSubjectPage = createServerFn({ method: "POST" })
       title?: string;
       content?: string;
       showAssignments?: boolean;
+      isPinned?: boolean;
     } = {};
     if (data.title !== undefined) updateData.title = data.title;
     if (data.content !== undefined) updateData.content = data.content;
     if (data.showAssignments !== undefined) updateData.showAssignments = data.showAssignments;
+    if (data.isPinned !== undefined) updateData.isPinned = data.isPinned;
 
     await db.subjectPage.update({
       where: { id: data.id },
@@ -588,6 +591,158 @@ export const movePageBlock = createServerFn({ method: "POST" })
         await db.pageBlock.update({ where: { id: reordered[i].id }, data: { order: i } });
       }
     }
+    return { ok: true };
+  });
+
+/** Adds an EMBED block authored as separate HTML/CSS/JS text. */
+export const createEmbedBlock = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        pageId: z.string().min(1),
+        html: z.string().default(""),
+        css: z.string().default(""),
+        js: z.string().default(""),
+        width: z.number().int().min(100).max(2000).default(800),
+        height: z.number().int().min(100).max(2000).default(500),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    const last = await db.pageBlock.findFirst({
+      where: { pageId: data.pageId },
+      orderBy: { order: "desc" },
+    });
+    const block = await db.pageBlock.create({
+      data: { pageId: data.pageId, type: "EMBED", order: (last?.order ?? -1) + 1 },
+    });
+    await db.pageEmbed.create({
+      data: {
+        blockId: block.id,
+        kind: "code",
+        html: data.html,
+        css: data.css,
+        js: data.js,
+        width: data.width,
+        height: data.height,
+      },
+    });
+    return { id: block.id };
+  });
+
+/** Adds an EMBED block from an uploaded .zip, bundled server-side into one document. */
+export const createEmbedBlockFromZip = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => {
+    if (!(data instanceof FormData)) throw new Error("Očekávána data formuláře.");
+    const pageId = data.get("pageId");
+    const width = Number(data.get("width") ?? 800);
+    const height = Number(data.get("height") ?? 500);
+    const file = data.get("file");
+    if (typeof pageId !== "string" || !pageId) throw new Error("Chybí stránka.");
+    if (!(file instanceof File) || file.size === 0) throw new Error("Vyberte .zip soubor.");
+    return {
+      pageId,
+      width: Number.isFinite(width) ? Math.min(2000, Math.max(100, Math.round(width))) : 800,
+      height: Number.isFinite(height) ? Math.min(2000, Math.max(100, Math.round(height))) : 500,
+      file,
+    };
+  })
+  .handler(async ({ data }) => {
+    await requireStaff();
+    const { bundleZipToHtml } = await import("@/lib/embed-bundle");
+    const bytes = new Uint8Array(await data.file.arrayBuffer());
+    const html = bundleZipToHtml(bytes); // throws a Czech, user-facing message on invalid input
+
+    const last = await db.pageBlock.findFirst({
+      where: { pageId: data.pageId },
+      orderBy: { order: "desc" },
+    });
+    const block = await db.pageBlock.create({
+      data: { pageId: data.pageId, type: "EMBED", order: (last?.order ?? -1) + 1 },
+    });
+    await db.pageEmbed.create({
+      data: { blockId: block.id, kind: "zip", html, width: data.width, height: data.height },
+    });
+    return { id: block.id };
+  });
+
+/** Edits an existing EMBED block's code/dimensions (code-kind blocks only). */
+export const updateEmbedBlock = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        blockId: z.string().min(1),
+        html: z.string(),
+        css: z.string(),
+        js: z.string(),
+        width: z.number().int().min(100).max(2000),
+        height: z.number().int().min(100).max(2000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    await db.pageEmbed.update({
+      where: { blockId: data.blockId },
+      data: {
+        kind: "code",
+        html: data.html,
+        css: data.css,
+        js: data.js,
+        width: data.width,
+        height: data.height,
+      },
+    });
+    return { ok: true };
+  });
+
+// --- ŠVP roadmap ---
+
+const roadmapTopicSchema = z.object({
+  title: z.string().min(1),
+  covers: z.string().default(""),
+  outcomes: z.string().default(""),
+});
+
+/** Replaces a subject's roadmap wholesale — the flow always re-imports the full AI result. */
+export const importRoadmap = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        subjectId: z.string().min(1),
+        gradeLabel: z.string().min(1),
+        partLabel: z.string().optional(),
+        topics: z.array(roadmapTopicSchema).min(1),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    await requireStaff();
+    await db.roadmap.upsert({
+      where: { subjectId: data.subjectId },
+      create: {
+        subjectId: data.subjectId,
+        gradeLabel: data.gradeLabel,
+        partLabel: data.partLabel || null,
+        topics: {
+          create: data.topics.map((t, i) => ({ ...t, order: i })),
+        },
+      },
+      update: {
+        gradeLabel: data.gradeLabel,
+        partLabel: data.partLabel || null,
+        topics: { deleteMany: {}, create: data.topics.map((t, i) => ({ ...t, order: i })) },
+      },
+    });
+    return { ok: true };
+  });
+
+export const deleteRoadmap = createServerFn({ method: "POST" })
+  .inputValidator((subjectId: string) => z.string().min(1).parse(subjectId))
+  .handler(async ({ data: subjectId }) => {
+    await requireStaff();
+    await db.roadmap.deleteMany({ where: { subjectId } });
     return { ok: true };
   });
 

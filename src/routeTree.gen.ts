@@ -21,6 +21,7 @@ import { Route as SubjectsSlugRouteImport } from './routes/subjects.$slug'
 import { Route as StudentsSidRouteImport } from './routes/students.$sid'
 import { Route as SubjectsSlugIndexRouteImport } from './routes/subjects.$slug.index'
 import { Route as SubjectsSlugTestsRouteImport } from './routes/subjects.$slug.tests'
+import { Route as SubjectsSlugRoadmapRouteImport } from './routes/subjects.$slug.roadmap'
 import { Route as SubjectsSlugOverviewRouteImport } from './routes/subjects.$slug.overview'
 import { Route as SubjectsSlugNewsRouteImport } from './routes/subjects.$slug.news'
 import { Route as SubjectsSlugMaterialsRouteImport } from './routes/subjects.$slug.materials'
@@ -91,6 +92,11 @@ const SubjectsSlugTestsRoute = SubjectsSlugTestsRouteImport.update({
   path: '/tests',
   getParentRoute: () => SubjectsSlugRoute,
 } as any)
+const SubjectsSlugRoadmapRoute = SubjectsSlugRoadmapRouteImport.update({
+  id: '/roadmap',
+  path: '/roadmap',
+  getParentRoute: () => SubjectsSlugRoute,
+} as any)
 const SubjectsSlugOverviewRoute = SubjectsSlugOverviewRouteImport.update({
   id: '/overview',
   path: '/overview',
@@ -154,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/subjects/$slug/materials': typeof SubjectsSlugMaterialsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
   '/subjects/$slug/overview': typeof SubjectsSlugOverviewRoute
+  '/subjects/$slug/roadmap': typeof SubjectsSlugRoadmapRoute
   '/subjects/$slug/tests': typeof SubjectsSlugTestsRouteWithChildren
   '/subjects/$slug/': typeof SubjectsSlugIndexRoute
   '/subjects/$slug/assignments/$aid': typeof SubjectsSlugAssignmentsAidRoute
@@ -175,6 +182,7 @@ export interface FileRoutesByTo {
   '/subjects/$slug/materials': typeof SubjectsSlugMaterialsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
   '/subjects/$slug/overview': typeof SubjectsSlugOverviewRoute
+  '/subjects/$slug/roadmap': typeof SubjectsSlugRoadmapRoute
   '/subjects/$slug/tests': typeof SubjectsSlugTestsRouteWithChildren
   '/subjects/$slug': typeof SubjectsSlugIndexRoute
   '/subjects/$slug/assignments/$aid': typeof SubjectsSlugAssignmentsAidRoute
@@ -199,6 +207,7 @@ export interface FileRoutesById {
   '/subjects/$slug/materials': typeof SubjectsSlugMaterialsRoute
   '/subjects/$slug/news': typeof SubjectsSlugNewsRoute
   '/subjects/$slug/overview': typeof SubjectsSlugOverviewRoute
+  '/subjects/$slug/roadmap': typeof SubjectsSlugRoadmapRoute
   '/subjects/$slug/tests': typeof SubjectsSlugTestsRouteWithChildren
   '/subjects/$slug/': typeof SubjectsSlugIndexRoute
   '/subjects/$slug/assignments/$aid': typeof SubjectsSlugAssignmentsAidRoute
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/subjects/$slug/materials'
     | '/subjects/$slug/news'
     | '/subjects/$slug/overview'
+    | '/subjects/$slug/roadmap'
     | '/subjects/$slug/tests'
     | '/subjects/$slug/'
     | '/subjects/$slug/assignments/$aid'
@@ -245,6 +255,7 @@ export interface FileRouteTypes {
     | '/subjects/$slug/materials'
     | '/subjects/$slug/news'
     | '/subjects/$slug/overview'
+    | '/subjects/$slug/roadmap'
     | '/subjects/$slug/tests'
     | '/subjects/$slug'
     | '/subjects/$slug/assignments/$aid'
@@ -268,6 +279,7 @@ export interface FileRouteTypes {
     | '/subjects/$slug/materials'
     | '/subjects/$slug/news'
     | '/subjects/$slug/overview'
+    | '/subjects/$slug/roadmap'
     | '/subjects/$slug/tests'
     | '/subjects/$slug/'
     | '/subjects/$slug/assignments/$aid'
@@ -374,6 +386,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SubjectsSlugTestsRouteImport
       parentRoute: typeof SubjectsSlugRoute
     }
+    '/subjects/$slug/roadmap': {
+      id: '/subjects/$slug/roadmap'
+      path: '/roadmap'
+      fullPath: '/subjects/$slug/roadmap'
+      preLoaderRoute: typeof SubjectsSlugRoadmapRouteImport
+      parentRoute: typeof SubjectsSlugRoute
+    }
     '/subjects/$slug/overview': {
       id: '/subjects/$slug/overview'
       path: '/overview'
@@ -458,6 +477,7 @@ interface SubjectsSlugRouteChildren {
   SubjectsSlugMaterialsRoute: typeof SubjectsSlugMaterialsRoute
   SubjectsSlugNewsRoute: typeof SubjectsSlugNewsRoute
   SubjectsSlugOverviewRoute: typeof SubjectsSlugOverviewRoute
+  SubjectsSlugRoadmapRoute: typeof SubjectsSlugRoadmapRoute
   SubjectsSlugTestsRoute: typeof SubjectsSlugTestsRouteWithChildren
   SubjectsSlugIndexRoute: typeof SubjectsSlugIndexRoute
   SubjectsSlugAssignmentsAidRoute: typeof SubjectsSlugAssignmentsAidRoute
@@ -470,6 +490,7 @@ const SubjectsSlugRouteChildren: SubjectsSlugRouteChildren = {
   SubjectsSlugMaterialsRoute: SubjectsSlugMaterialsRoute,
   SubjectsSlugNewsRoute: SubjectsSlugNewsRoute,
   SubjectsSlugOverviewRoute: SubjectsSlugOverviewRoute,
+  SubjectsSlugRoadmapRoute: SubjectsSlugRoadmapRoute,
   SubjectsSlugTestsRoute: SubjectsSlugTestsRouteWithChildren,
   SubjectsSlugIndexRoute: SubjectsSlugIndexRoute,
   SubjectsSlugAssignmentsAidRoute: SubjectsSlugAssignmentsAidRoute,

@@ -17,6 +17,7 @@ import {
   FileQuestion,
   FolderOpen,
   BookMarked,
+  Map,
 } from "lucide-react";
 import { requireUser } from "@/lib/guards";
 import { getSubject } from "@/lib/data";
@@ -365,49 +366,65 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
           <FolderOpen className="h-4 w-4 shrink-0" />
           <span className="truncate">Materiály</span>
         </Link>
-        <div className="my-1 hidden border-t border-border lg:block" />
+        <Link
+          to="/subjects/$slug/roadmap"
+          params={{ slug: subject.slug }}
+          className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
+            pathname.endsWith("/roadmap")
+              ? "nav-active font-medium"
+              : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
+          }`}
+        >
+          <Map className="h-4 w-4 shrink-0" />
+          <span className="truncate">Roadmapa</span>
+        </Link>
 
-        {subject.pages.map((p, i) => {
-          const href = `/subjects/${subject.slug}/p/${p.slug}`;
-          const active = pathname === href || (i === 0 && pathname === `/subjects/${subject.slug}`);
-          const isTopic = p.id === subject.activePageId;
-          const Icon = PAGE_ICON[p.template];
-          return (
-            <div key={p.id} className="group/item relative flex shrink-0 items-center">
-              <Link
-                to="/subjects/$slug/p/$pageSlug"
-                params={{ slug: subject.slug, pageSlug: p.slug }}
-                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
-                  active
-                    ? "nav-active font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
-                }`}
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className="truncate">{p.title}</span>
-                {isTopic && (
-                  <span
-                    title="Právě probíraná látka"
-                    className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-subject-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-subject ring-1 ring-subject/30 lg:group-hover/item:hidden"
-                  >
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-subject" />
-                    <span className="hidden lg:inline">Probíráme</span>
-                  </span>
-                )}
-              </Link>
-              {staff && (
-                <PageRowActions
-                  page={p}
-                  subjectId={subject.id}
-                  subjectSlug={subject.slug}
-                  isFirst={i === 0}
-                  isLast={i === subject.pages.length - 1}
-                  isTopic={isTopic}
-                />
-              )}
-            </div>
-          );
-        })}
+        {/* Pinned pages: same rows as below, but pulled up next to the fixed nav items. */}
+        {subject.pages.some((p) => p.isPinned) && (
+          <span className="mt-1 hidden px-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground/70 lg:block">
+            Připnuto
+          </span>
+        )}
+        {subject.pages
+          .filter((p) => p.isPinned)
+          .map((p) => {
+            const index = subject.pages.findIndex((x) => x.id === p.id);
+            return (
+              <PageRow
+                key={p.id}
+                page={p}
+                index={index}
+                subject={subject}
+                pathname={pathname}
+                staff={staff}
+                isFirst={index === 0}
+                isLast={index === subject.pages.length - 1}
+              />
+            );
+          })}
+
+        <div className="my-1 hidden border-t border-border lg:block" />
+        <span className="hidden px-3 text-[10px] font-bold uppercase tracking-wide text-muted-foreground/70 lg:block">
+          Stránky
+        </span>
+
+        {subject.pages
+          .filter((p) => !p.isPinned)
+          .map((p) => {
+            const index = subject.pages.findIndex((x) => x.id === p.id);
+            return (
+              <PageRow
+                key={p.id}
+                page={p}
+                index={index}
+                subject={subject}
+                pathname={pathname}
+                staff={staff}
+                isFirst={index === 0}
+                isLast={index === subject.pages.length - 1}
+              />
+            );
+          })}
         {staff && <AddPage subjectId={subject.id} subjectSlug={subject.slug} />}
 
         {staff && (
@@ -439,6 +456,65 @@ function PageSidebar({ subject }: { subject: SubjectDetail }) {
         )}
       </nav>
     </aside>
+  );
+}
+
+/** One row in the sidebar page list — used for both the pinned group and the regular list below. */
+function PageRow({
+  page: p,
+  index,
+  subject,
+  pathname,
+  staff,
+  isFirst,
+  isLast,
+}: {
+  page: SubjectPageNav;
+  index: number;
+  subject: SubjectDetail;
+  pathname: string;
+  staff: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+}) {
+  const href = `/subjects/${subject.slug}/p/${p.slug}`;
+  const active = pathname === href || (index === 0 && pathname === `/subjects/${subject.slug}`);
+  const isTopic = p.id === subject.activePageId;
+  const Icon = PAGE_ICON[p.template];
+  return (
+    <div className="group/item relative flex shrink-0 items-center">
+      <Link
+        to="/subjects/$slug/p/$pageSlug"
+        params={{ slug: subject.slug, pageSlug: p.slug }}
+        className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all ${
+          active
+            ? "nav-active font-medium"
+            : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
+        }`}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        <span className="truncate">{p.title}</span>
+        {isTopic && (
+          <span
+            title="Právě probíraná látka"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-subject-soft px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-subject ring-1 ring-subject/30 lg:group-hover/item:hidden"
+          >
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-subject" />
+            <span className="hidden lg:inline">Probíráme</span>
+          </span>
+        )}
+      </Link>
+      {staff && (
+        <PageRowActions
+          page={p}
+          subjectId={subject.id}
+          subjectSlug={subject.slug}
+          isFirst={isFirst}
+          isLast={isLast}
+          isTopic={isTopic}
+        />
+      )}
+    </div>
   );
 }
 

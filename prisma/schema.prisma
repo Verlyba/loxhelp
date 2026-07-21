@@ -28,7 +28,7 @@ model User {
   classId            String? // students belong to a class (2EB, …)
   class              Class?   @relation(fields: [classId], references: [id], onDelete: SetNull)
   createdAt          DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  updatedAt          DateTime @updatedAt
 
   sessions            Session[]
   enrollments         Enrollment[]
@@ -147,9 +147,38 @@ model Subject {
   tests           Test[]
   moodleTests     MoodleTest[]
   gradingSettings SubjectGradingSettings?
+  roadmap         Roadmap?
 
   @@index([classId])
   @@index([teacherId])
+}
+
+// ŠVP-derived teaching roadmap for one subject: an ordered list of topics,
+// each with what's covered and what the student should master. Authored via
+// an AI-assisted flow — the teacher fills in subject/part/grade, copies a
+// generated prompt + JSON template into any AI chat alongside the school's
+// ŠVP PDF, and pastes the AI's JSON result back in to populate this.
+model Roadmap {
+  id         String   @id @default(uuid())
+  subjectId  String   @unique
+  subject    Subject  @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  gradeLabel String // teacher-entered, e.g. "2. ročník"
+  partLabel  String? // teacher-entered, only if the subject is split into parts
+  updatedAt  DateTime @updatedAt
+
+  topics RoadmapTopic[]
+}
+
+model RoadmapTopic {
+  id        String  @id @default(uuid())
+  roadmapId String
+  roadmap   Roadmap @relation(fields: [roadmapId], references: [id], onDelete: Cascade)
+  order     Int     @default(0)
+  title     String
+  covers    String // "co se má probrat" — ŠVP učivo
+  outcomes  String // "co má student umět" — ŠVP výstupy
+
+  @@index([roadmapId])
 }
 
 // Per-course grading automation: thresholds used to turn a Moodle test score
@@ -312,6 +341,9 @@ model SubjectPage {
   content         String   @default("") // legacy: pre-block-system page text
   order           Int      @default(0)
   showAssignments Boolean  @default(false) // legacy: pre-block-system assignments toggle
+  // Pinned pages render in the sidebar's fixed top group (next to Oznámení /
+  // Testy / Materiály / Roadmapa) instead of the ordinary page list below.
+  isPinned        Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -328,18 +360,39 @@ model SubjectPage {
 // blocks hold their own markdown-lite text; MATERIALS and ASSIGNMENTS blocks
 // are purely structural placement markers that render the page's existing
 // files / page-scoped assignments (those stay page-scoped, not block-scoped,
-// so at most one of each type is meaningful per page).
+// so at most one of each type is meaningful per page). EMBED blocks hold a
+// sandboxed custom HTML/CSS/JS (or bundled .zip) widget — see PageEmbed.
 model PageBlock {
   id        String      @id @default(uuid())
   pageId    String
   page      SubjectPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  type      String // TEXT | MATERIALS | ASSIGNMENTS
+  type      String // TEXT | MATERIALS | ASSIGNMENTS | EMBED
   content   String      @default("") // TEXT blocks only
   order     Int         @default(0)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+  embed     PageEmbed?
 
   @@index([pageId])
+}
+
+// Sandboxed custom-code widget for one EMBED block. "code": html/css/js are
+// composed client-side into one document. "zip": a teacher-uploaded .zip is
+// unpacked and bundled server-side (relative CSS/JS/images inlined) into one
+// self-contained document at upload time, stored ready-to-render in `html`.
+// Either way the result renders in a fixed-size sandboxed iframe (allow-scripts
+// only, no allow-same-origin) so it can't touch the parent page or its cookies.
+model PageEmbed {
+  id        String    @id @default(uuid())
+  blockId   String    @unique
+  block     PageBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  kind      String // code | zip
+  html      String    @default("")
+  css       String    @default("")
+  js        String    @default("")
+  width     Int       @default(800)
+  height    Int       @default(500)
+  updatedAt DateTime  @updatedAt
 }
 
 // A downloadable file attached to a subject page (presentations, manuals, schemas…).

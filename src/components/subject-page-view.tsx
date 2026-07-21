@@ -25,6 +25,10 @@ import {
   ListChecks,
   Type,
   LayoutGrid,
+  Code2,
+  Copy,
+  Pin,
+  PinOff,
 } from "lucide-react";
 import {
   updateSubjectPage,
@@ -38,6 +42,9 @@ import {
   updatePageBlockContent,
   deletePageBlock,
   movePageBlock,
+  createEmbedBlock,
+  createEmbedBlockFromZip,
+  updateEmbedBlock,
 } from "@/lib/actions";
 import { useUser } from "@/lib/use-user";
 import { isStaff } from "@/lib/roles";
@@ -53,6 +60,8 @@ import {
   type TaskStatus,
   type PageBlockView,
   type BlockType,
+  type PageEmbedView,
+  type SubjectPageNav,
 } from "@/lib/types";
 import { toast } from "sonner";
 import { useDialog } from "@/components/dialog-provider";
@@ -76,6 +85,7 @@ const BLOCK_META: Record<
   TEXT: { label: "Text", icon: Type },
   MATERIALS: { label: "Materiály", icon: FolderOpen },
   ASSIGNMENTS: { label: "Úkoly", icon: ListChecks },
+  EMBED: { label: "Vlastní kód", icon: Code2 },
 };
 
 function ContentPage({ page }: { page: SubjectPageDetail }) {
@@ -104,6 +114,7 @@ function ContentPage({ page }: { page: SubjectPageDetail }) {
         </div>
         {staff && !editingTitle && (
           <div className="flex shrink-0 items-center gap-2">
+            <PinToggleButton page={page} />
             <button
               onClick={() => setEditingTitle(true)}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -194,6 +205,39 @@ function PageTitleEditor({ page, onDone }: { page: SubjectPageDetail; onDone: ()
         <X className="h-4 w-4" />
       </button>
     </div>
+  );
+}
+
+/** Pins/unpins a page into the sidebar's fixed top group (next to Oznámení/Testy/Materiály/Roadmapa). */
+function PinToggleButton({ page }: { page: SubjectPageNav }) {
+  const router = useRouter();
+  const update = useServerFn(updateSubjectPage);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      await update({ data: { id: page.id, isPinned: !page.isPinned } });
+      await router.invalidate();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      title={page.isPinned ? "Odepnout z horní lišty" : "Připnout nahoru"}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors disabled:opacity-60 ${
+        page.isPinned
+          ? "border-subject/50 bg-subject-soft text-subject"
+          : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
+      }`}
+    >
+      {page.isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+      {page.isPinned ? "Připnuto" : "Připnout nahoru"}
+    </button>
   );
 }
 
@@ -293,6 +337,7 @@ function PageBlockRenderer({
       {block.type === "ASSIGNMENTS" && (
         <AssignmentsBlock page={page} subject={subject} staff={staff} />
       )}
+      {block.type === "EMBED" && <EmbedBlockView block={block} pageId={page.id} staff={staff} />}
     </div>
   );
 }
@@ -486,6 +531,7 @@ function AddBlockBar({ pageId, usedTypes }: { pageId: string; usedTypes: Set<Blo
   const router = useRouter();
   const create = useServerFn(createPageBlock);
   const [busy, setBusy] = useState<BlockType | null>(null);
+  const [embedModalOpen, setEmbedModalOpen] = useState(false);
 
   const add = async (type: BlockType) => {
     setBusy(type);
@@ -505,11 +551,12 @@ function AddBlockBar({ pageId, usedTypes }: { pageId: string; usedTypes: Set<Blo
         const Icon = meta.icon;
         // MATERIALS/ASSIGNMENTS render the page's whole file/assignment list —
         // a second one would just repeat the same content, so cap at one each.
-        const alreadyUsed = type !== "TEXT" && usedTypes.has(type);
+        // TEXT and EMBED may repeat freely.
+        const alreadyUsed = type !== "TEXT" && type !== "EMBED" && usedTypes.has(type);
         return (
           <button
             key={type}
-            onClick={() => add(type)}
+            onClick={() => (type === "EMBED" ? setEmbedModalOpen(true) : add(type))}
             disabled={busy !== null || alreadyUsed}
             title={alreadyUsed ? `Stránka už blok „${meta.label}“ má.` : undefined}
             className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
@@ -520,7 +567,333 @@ function AddBlockBar({ pageId, usedTypes }: { pageId: string; usedTypes: Set<Blo
           </button>
         );
       })}
+      {embedModalOpen && (
+        <EmbedEditorModal pageId={pageId} onClose={() => setEmbedModalOpen(false)} />
+      )}
     </div>
+  );
+}
+
+/** Renders one EMBED block: a fixed-size sandboxed iframe. */
+function EmbedBlockView({
+  block,
+  pageId,
+  staff,
+}: {
+  block: PageBlockView;
+  pageId: string;
+  staff: boolean;
+}) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const embed = block.embed;
+  if (!embed) return null;
+
+  const srcDoc =
+    embed.kind === "code"
+      ? [
+          "<!DOCTYPE html>",
+          '<html lang="cs"><head><meta charset="utf-8" />',
+          embed.css.trim() ? `<style>${embed.css}</style>` : "",
+          "</head><body>",
+          embed.html,
+          embed.js.trim() ? `<script>${embed.js}</script>` : "",
+          "</body></html>",
+        ].join("\n")
+      : embed.html;
+
+  return (
+    <div>
+      {staff && embed.kind === "code" && (
+        <div className="mb-1.5 flex justify-end">
+          <button
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <Pencil className="h-3 w-3" /> Upravit kód
+          </button>
+        </div>
+      )}
+      <iframe
+        title="Vlastní obsah"
+        sandbox="allow-scripts"
+        srcDoc={srcDoc}
+        style={{ width: embed.width, height: embed.height, maxWidth: "100%" }}
+        className="rounded-lg border border-border bg-white"
+      />
+      {editing && (
+        <EmbedEditorModal
+          pageId={pageId}
+          blockId={block.id}
+          existing={embed}
+          onClose={() => {
+            setEditing(false);
+            router.invalidate();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+const EMBED_RULES = `Tento blok zobrazuje vlastní HTML/CSS/JS (nebo .zip) v izolovaném rámci s PEVNOU velikostí — obsah se nesmí spoléhat na to, že se přizpůsobí okolní stránce.
+
+Podporováno:
+- čistý HTML + CSS + JS
+- .zip s jedním index.html v kořeni (nebo v jedné složce) a lokálně odkazovanými .css/.js/obrázky přes relativní cestu
+
+Nepodporováno:
+- build nástroje (React/Vue/Webpack aplikace)
+- externí síťové požadavky (fetch, CDN skripty, externí obrázky)
+- víc stránek / navigace
+
+Rámec běží v sandboxu (allow-scripts) — kód nemá přístup k datům aplikace, cookies ani k rodičovské stránce.`;
+
+function embedPrompt(width: number, height: number): string {
+  return `Vytvoř mi jednostránkovou webovou komponentu (HTML + CSS + JS, nebo jako .zip s index.html v kořeni), která splňuje tato pravidla:
+- Poběží samostatně v <iframe sandbox="allow-scripts"> bez přístupu k rodičovské stránce, cookies nebo localStorage.
+- Pevná velikost ${width}×${height} px — nespoléhej na to, že se přizpůsobí okolí.
+- Žádné externí síťové požadavky (fetch, CDN skripty, externí obrázky) — vše musí být buď inline, nebo lokální soubor v .zip odkazovaný relativní cestou.
+- Pokud vracíš .zip, dej index.html do kořene a CSS/JS/obrázky odkazuj relativní cestou.
+
+Úkol/obsah, který má komponenta zobrazovat: [DOPLŇ SEM]`;
+}
+
+function EmbedEditorModal({
+  pageId,
+  blockId,
+  existing,
+  onClose,
+}: {
+  pageId: string;
+  blockId?: string;
+  existing?: PageEmbedView;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const create = useServerFn(createEmbedBlock);
+  const createFromZip = useServerFn(createEmbedBlockFromZip);
+  const update = useServerFn(updateEmbedBlock);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const [kind, setKind] = useState<"code" | "zip">(existing?.kind ?? "code");
+  const [width, setWidth] = useState(existing?.width ?? 800);
+  const [height, setHeight] = useState(existing?.height ?? 500);
+  const [html, setHtml] = useState(existing?.html ?? "");
+  const [css, setCss] = useState(existing?.css ?? "");
+  const [js, setJs] = useState(existing?.js ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const copy = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    toast.success("Zkopírováno.");
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      if (existing && blockId) {
+        await update({ data: { blockId, html, css, js, width, height } });
+      } else if (kind === "zip") {
+        const file = fileRef.current?.files?.[0];
+        if (!file) throw new Error("Vyberte .zip soubor.");
+        const fd = new FormData();
+        fd.set("pageId", pageId);
+        fd.set("width", String(width));
+        fd.set("height", String(height));
+        fd.set("file", file);
+        await createFromZip({ data: fd });
+      } else {
+        await create({ data: { pageId, html, css, js, width, height } });
+      }
+      await router.invalidate();
+      onClose();
+      toast.success("Blok uložen.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Uložení se nezdařilo.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalBackdrop onClose={onClose} ariaLabel="Vlastní kód">
+      <form
+        onSubmit={submit}
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-surface shadow-[var(--shadow-elevated)]"
+      >
+        <header className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-4">
+          <h3 className="font-display text-lg font-bold text-foreground">
+            {existing ? "Upravit vlastní kód" : "Vlastní kód (HTML/CSS/JS nebo .zip)"}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Zavřít"
+            className="rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+
+        <div className="grid gap-4 p-6">
+          <details className="rounded-lg border border-border bg-muted/20 p-3 text-xs">
+            <summary className="cursor-pointer font-semibold text-foreground">
+              Pravidla a prompt pro AI
+            </summary>
+            <div className="mt-2 grid gap-3">
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-semibold text-muted-foreground">Pravidla</span>
+                  <button
+                    type="button"
+                    onClick={() => copy(EMBED_RULES)}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[11px] hover:bg-accent"
+                  >
+                    <Copy className="h-3 w-3" /> Kopírovat
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap rounded-md border border-border bg-background p-2 font-mono text-[11px] leading-relaxed text-foreground">
+                  {EMBED_RULES}
+                </pre>
+              </div>
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="font-semibold text-muted-foreground">Prompt pro AI</span>
+                  <button
+                    type="button"
+                    onClick={() => copy(embedPrompt(width, height))}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[11px] hover:bg-accent"
+                  >
+                    <Copy className="h-3 w-3" /> Kopírovat
+                  </button>
+                </div>
+                <pre className="whitespace-pre-wrap rounded-md border border-border bg-background p-2 font-mono text-[11px] leading-relaxed text-foreground">
+                  {embedPrompt(width, height)}
+                </pre>
+              </div>
+            </div>
+          </details>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs font-semibold text-muted-foreground">
+              Šířka (px)
+              <input
+                type="number"
+                min={100}
+                max={2000}
+                value={width}
+                onChange={(e) => setWidth(Number(e.target.value) || 800)}
+                className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+              />
+            </label>
+            <label className="block text-xs font-semibold text-muted-foreground">
+              Výška (px)
+              <input
+                type="number"
+                min={100}
+                max={2000}
+                value={height}
+                onChange={(e) => setHeight(Number(e.target.value) || 500)}
+                className="mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+              />
+            </label>
+          </div>
+
+          {!existing && (
+            <div className="flex gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setKind("code")}
+                className={`rounded-md border px-3 py-1.5 ${
+                  kind === "code"
+                    ? "border-subject/50 bg-subject-soft text-subject"
+                    : "border-border text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                HTML/CSS/JS
+              </button>
+              <button
+                type="button"
+                onClick={() => setKind("zip")}
+                className={`rounded-md border px-3 py-1.5 ${
+                  kind === "zip"
+                    ? "border-subject/50 bg-subject-soft text-subject"
+                    : "border-border text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                .zip
+              </button>
+            </div>
+          )}
+
+          {kind === "code" || existing ? (
+            <>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                HTML
+                <textarea
+                  value={html}
+                  onChange={(e) => setHtml(e.target.value)}
+                  rows={5}
+                  className="mono mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                CSS
+                <textarea
+                  value={css}
+                  onChange={(e) => setCss(e.target.value)}
+                  rows={4}
+                  className="mono mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+              <label className="block text-xs font-semibold text-muted-foreground">
+                JS
+                <textarea
+                  value={js}
+                  onChange={(e) => setJs(e.target.value)}
+                  rows={4}
+                  className="mono mt-1.5 w-full rounded-md border border-input bg-background px-3 py-2 text-xs leading-relaxed text-foreground outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+            </>
+          ) : (
+            <label className="block text-xs font-semibold text-muted-foreground">
+              .zip soubor
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".zip"
+                required
+                className="mt-1.5 block w-full text-sm text-foreground"
+              />
+            </label>
+          )}
+
+          {error && <p className="text-xs text-red-600 font-medium">{error}</p>}
+        </div>
+
+        <footer className="flex justify-end gap-3 border-t border-border px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            Storno
+          </button>
+          <button
+            type="submit"
+            disabled={busy}
+            className="subject-button rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60"
+          >
+            {busy ? "Ukládám…" : "Uložit"}
+          </button>
+        </footer>
+      </form>
+    </ModalBackdrop>
   );
 }
 
@@ -1049,7 +1422,12 @@ function AssignmentsTemplate({ page }: { page: SubjectPageDetail }) {
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-2xl font-semibold">{page.title}</h2>
-        {staff && <CreateAssignment subjectId={subject.id} />}
+        {staff && (
+          <div className="flex items-center gap-2">
+            <PinToggleButton page={page} />
+            <CreateAssignment subjectId={subject.id} />
+          </div>
+        )}
       </div>
       {subject.assignments.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
